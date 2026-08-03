@@ -1,4 +1,5 @@
 import { ClapBot } from './ClapBot';
+import { JumpRope } from './JumpRope';
 import { RallyBall } from './RallyBall';
 import type { MiniGame } from './MiniGame';
 
@@ -16,4 +17,5 @@ export interface MiniGameEntry {
 export const MINIGAMES: MiniGameEntry[] = [
   { id: 'clapbot', title: '따라 치기', hint: new ClapBot().hint, create: () => new ClapBot() },
   { id: 'rallyball', title: '튕겨내기', hint: new RallyBall().hint, create: () => new RallyBall() },
+  { id: 'jumprope', title: '줄넘기', hint: new JumpRope().hint, create: () => new JumpRope() },
 ];
