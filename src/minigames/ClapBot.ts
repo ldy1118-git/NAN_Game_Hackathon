@@ -42,6 +42,7 @@ export class ClapBot implements MiniGame {
   readonly id = 'clapbot';
   readonly title = '따라 치기';
   readonly hint = '로봇이 친 손뼉을 그대로 따라 치세요 — 스페이스';
+  readonly order = 10;   // 가장 기본형 — 여기서 시작
   readonly bpm = 124;
   readonly endBeat = LEAD_IN + PATTERNS.length * PHRASE + 2;
 

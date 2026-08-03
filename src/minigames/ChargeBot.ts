@@ -38,6 +38,7 @@ export class ChargeBot implements MiniGame {
   readonly id = 'chargebot';
   readonly title = '충전하기';
   readonly hint = '스페이스를 누르고 있다가 게이지가 목표선에 닿는 순간 떼세요';
+  readonly order = 40;
   readonly bpm = 128;
   readonly endBeat = LEAD_IN + DURATIONS.length * SLOT + 2;
 

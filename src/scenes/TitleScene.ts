@@ -1,5 +1,5 @@
 import type { App, Scene } from '../core/App';
-import { C, H, W, beatPulse, circle, easeOut, roundRect, shadowed, text } from '../core/draw';
+import { C, H, W, beatPulse, circle, clamp, easeOut, roundRect, shadowed, text } from '../core/draw';
 import { MINIGAMES } from '../minigames';
 import { drawBeatDots } from '../minigames/stage';
 import { CalibrationScene } from './CalibrationScene';
@@ -8,6 +8,11 @@ import { PlayScene } from './PlayScene';
 const MENU_BPM = 112;
 /** 타이틀 화면은 예약을 아주 짧게만 걸어둔다 — 게임 시작 직후까지 소리가 새지 않도록. */
 const TITLE_LOOKAHEAD = 0.08;
+
+/** 한 번에 보여줄 메뉴 줄 수. 미니게임이 더 늘어나면 나머지는 스크롤된다. */
+const VISIBLE_ROWS = 5;
+const ROW_H = 56;
+const MENU_TOP = 182;
 
 export class TitleScene implements Scene {
   private app!: App;
@@ -101,15 +106,22 @@ export class TitleScene implements Scene {
       weight: 500,
     });
 
-    // 메뉴
+    // 메뉴 — 미니게임이 늘어나도 화면을 넘지 않도록 창을 두고 스크롤한다.
     const items = this.items;
-    items.forEach((label, i) => {
+    const n = items.length;
+    const maxStart = Math.max(0, n - VISIBLE_ROWS);
+    // 커서를 창 가운데 두되, 목록의 처음·끝에서는 더 밀지 않는다.
+    const start = clamp(this.cursor - Math.floor(VISIBLE_ROWS / 2), 0, maxStart);
+    const shown = Math.min(VISIBLE_ROWS, n);
+
+    for (let row = 0; row < shown; row++) {
+      const i = start + row;
       const sel = i === this.cursor;
-      const y = 226 + i * 74;
+      const y = MENU_TOP + row * ROW_H + ROW_H / 2;
       const since = beat - this.movedAt;
       const pop = sel && since < 0.5 ? easeOut(1 - since / 0.5, 3) : 0;
-      const w = 420 + (sel ? 26 : 0) + pop * 14;
-      const h = 58;
+      const w = 400 + (sel ? 26 : 0) + pop * 14;
+      const h = ROW_H - 10;
       const x = W / 2 - w / 2;
 
       g.save();
@@ -121,24 +133,28 @@ export class TitleScene implements Scene {
       }
       shadowed(
         g,
-        () => roundRect(g, x, y - h / 2, w, h, 16),
+        () => roundRect(g, x, y - h / 2, w, h, 14),
         sel ? C.pink : 'rgba(43, 42, 51, 0.07)',
-        sel ? 7 : 3,
+        sel ? 6 : 3,
       );
-      text(g, label, W / 2, y, {
-        size: sel ? 26 : 22,
+      text(g, items[i], W / 2, y, {
+        size: sel ? 24 : 20,
         color: sel ? C.white : C.inkSoft,
         weight: sel ? 800 : 600,
       });
       g.restore();
-    });
+    }
+
+    // 창 위아래로 더 있으면 화살표로 알린다.
+    if (start > 0) drawMoreArrow(g, MENU_TOP - 12, -1);
+    if (start + shown < n) drawMoreArrow(g, MENU_TOP + shown * ROW_H + 12, 1);
 
     const hint =
       this.cursor < MINIGAMES.length
         ? MINIGAMES[this.cursor].hint
         : '내 환경의 입력 지연을 재서 판정을 보정합니다';
-    text(g, hint, W / 2, 462, { size: 15, color: C.inkSoft, weight: 500 });
-    drawBeatDots(g, beat, 494);
+    text(g, hint, W / 2, 470, { size: 15, color: C.inkSoft, weight: 500 });
+    drawBeatDots(g, beat, 500);
     text(g, '↑ ↓ 로 선택 · 스페이스로 시작', W / 2, H - 20, {
       size: 14,
       color: C.inkSoft,
@@ -146,4 +162,18 @@ export class TitleScene implements Scene {
       alpha: 0.75,
     });
   }
+}
+
+/** 목록이 더 있다는 표시. dir = -1 위, 1 아래. */
+function drawMoreArrow(g: CanvasRenderingContext2D, y: number, dir: number): void {
+  g.save();
+  g.globalAlpha = 0.45;
+  g.fillStyle = C.ink;
+  g.beginPath();
+  g.moveTo(W / 2, y + dir * 6);
+  g.lineTo(W / 2 - 9, y - dir * 4);
+  g.lineTo(W / 2 + 9, y - dir * 4);
+  g.closePath();
+  g.fill();
+  g.restore();
 }

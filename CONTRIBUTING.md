@@ -87,33 +87,36 @@ git push --force-with-lease
 없는 게 필요하면 만들어 쓰되, **다른 미니게임에도 쓸 만한 거면 `beat.ts`나
 `character.ts`에 넣고 단톡에 알리자.** 셋이 각자 같은 걸 만드는 게 제일 아깝다.
 
-## 충돌 나는 곳은 세 군데뿐이다
+## 새 미니게임은 파일만 만들면 된다
 
-미니게임 본체는 파일 하나로 완전히 독립적이다. 규칙은 **"한 파일의 주인은 한 명"**이다.
+**등록 절차가 없다.** `src/minigames/` 에 `MiniGame` 을 구현한 클래스를 export 하는
+파일을 만들면 자동으로 목록에 잡힌다. `index.ts` 가 폴더를 훑기 때문이다.
+
+```ts
+export class Piano implements MiniGame {
+  readonly id = 'piano';        // 다른 게임과 겹치지 않게
+  readonly title = '건반';
+  readonly hint = '한 줄 설명';
+  readonly order = 50;          // 메뉴 순서. 작을수록 위. 안 적으면 맨 뒤
+  readonly bpm = 120;
+  readonly endBeat = 64;
+  // build / groove / scheduleCue / playerSound / draw
+}
+```
+
+예전에는 여기에 목록을 손으로 적었고 새 게임마다 그 배열에서 충돌했다.
+이제 **공용 파일을 건드릴 일이 없으니 미니게임끼리는 충돌이 나지 않는다.**
+
+`order` 를 각자 자기 파일에 적는 것도 같은 이유다. 10, 20, 30 처럼 띄엄띄엄
+매겨두면 나중에 사이에 끼워넣기 쉽다. 겹치면 id 순으로 정렬된다.
+
+## 그래도 충돌할 수 있는 곳
+
+미니게임 본체는 파일 하나로 독립적이다. 규칙은 **"한 파일의 주인은 한 명"**이다.
 한 사람이 미니게임을 3개 만들어도 되고(파일 3개), 그 안에서는 뭘 하든 충돌이 안 난다.
 다만 **같은 파일을 두 명이 동시에 고치면** 충돌하니, 그럴 땐 미리 말을 맞추자.
 
-### 1. `src/minigames/index.ts` — 유일한 공통 접점
-
-새 미니게임을 등록하는 배열이라, 셋이 각자 추가하면 여기서 충돌한다.
-**해결은 간단하다. 양쪽 줄을 다 남기면 된다.**
-
-```
-<<<<<<< HEAD
-  { id: 'piano', ... },
-=======
-  { id: 'drum', ... },
->>>>>>> feat/other-drum
-```
-
-→ 충돌 표시만 지우고 두 줄 다 남긴다:
-
-```ts
-  { id: 'piano', ... },
-  { id: 'drum', ... },
-```
-
-### 2. `src/core/*` — 셋이 공유하는 인프라
+### 1. `src/core/*` — 셋이 공유하는 인프라
 
 `Conductor`, `Runner`, `AudioEngine`, `App`은 모든 미니게임이 의존한다.
 
@@ -121,7 +124,7 @@ git push --force-with-lease
 - **변경은 합의 후** — 기존 메서드 시그니처나 판정 창(`core/types.ts`의 `WINDOW_MS`)을
   바꾸면 셋 다 영향을 받는다. 먼저 말하고, **미니게임 PR에 섞지 말고 별도 PR로** 올린다.
 
-### 3. `package.json` / `package-lock.json`
+### 2. `package.json` / `package-lock.json`
 
 지금 의존성은 vite, typescript 둘뿐이다. **되도록 라이브러리를 추가하지 말자.**
 Canvas 2D와 Web Audio만으로 충분하고, 번들도 27KB로 가볍다.
@@ -144,6 +147,9 @@ lock 파일 충돌은 손으로 못 고치고 `npm install`을 다시 돌려야 
 ```bash
 npm run build     # 타입체크 + 빌드. 통과 안 하면 머지하지 않는다
 ```
+
+새 미니게임을 만들었으면 **README 의 미니게임 표에도 한 줄 추가**한다.
+등록은 자동이지만 이 표만은 아직 손으로 관리한다 — 빼먹기 쉬우니 주의.
 
 그리고 **실제로 플레이해 보고** 아래를 확인한다.
 

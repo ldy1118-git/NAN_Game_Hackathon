@@ -36,6 +36,7 @@ export class RallyBall implements MiniGame {
   readonly id = 'rallyball';
   readonly title = '튕겨내기';
   readonly hint = '공이 라켓에 닿는 순간 스페이스 — 분홍 공은 두 배 빠릅니다';
+  readonly order = 20;
   readonly bpm = 132;
   readonly endBeat: number;
 

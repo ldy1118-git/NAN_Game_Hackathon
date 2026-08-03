@@ -45,6 +45,7 @@ export class JumpRope implements MiniGame {
   readonly id = 'jumprope';
   readonly title = '줄넘기';
   readonly hint = '줄이 발에 닿는 순간 점프! — 스페이스';
+  readonly order = 30;
   readonly bpm = 116;
   readonly endBeat: number;
 

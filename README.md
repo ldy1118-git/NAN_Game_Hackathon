@@ -80,20 +80,23 @@ src/
     beat.ts         공통 박자 유틸 (감쇠·예비동작·이벤트 조회)
     character.ts    캐릭터·손·충격파 그리기
     stage.ts        바닥·박자 점·배경 플래시
-    index.ts        등록소
+    index.ts        등록소 (폴더를 훑어 자동 등록)
   scenes/           Boot → Title → (Calibration | Play → Result)
 ```
 
 ## 미니게임 추가하기
 
-`MiniGame`을 구현하고 `minigames/index.ts`에 한 줄 추가하면 끝이다. 시간·판정·점수·
-오디오 예약은 전부 `Runner`가 처리하므로, 게임 쪽은 채보와 그림·소리만 정하면 된다.
+`minigames/` 에 `MiniGame` 을 구현한 클래스를 export 하는 파일을 만들면 **끝이다.**
+`index.ts` 가 폴더를 훑어 자동으로 등록하므로 목록에 손으로 적을 필요가 없다.
+시간·판정·점수·오디오 예약은 전부 `Runner` 가 처리하므로, 게임 쪽은 채보와
+그림·소리만 정하면 된다.
 
 ```ts
 export class MyGame implements MiniGame {
   readonly id = 'mygame';
   readonly title = '내 게임';
   readonly hint = '한 줄 설명';
+  readonly order = 50;   // 메뉴 순서. 작을수록 위. 안 적으면 맨 뒤로
   readonly bpm = 120;
   readonly endBeat = 64;
 

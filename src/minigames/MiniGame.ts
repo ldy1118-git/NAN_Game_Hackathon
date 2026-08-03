@@ -27,6 +27,14 @@ export interface MiniGame {
   readonly bpm: number;
   /** 이 박을 넘기면 결과 화면으로. */
   readonly endBeat: number;
+  /**
+   * 메뉴에 뜨는 순서. 작을수록 위. 안 적으면 100 이라 나중에 붙는다.
+   *
+   * 목록을 한 파일에 모아두지 않고 각자 자기 파일에 순서를 적는 이유는,
+   * 그래야 새 게임을 추가할 때 아무도 공용 파일을 건드리지 않기 때문이다.
+   * 쉬운 것부터 오도록 10, 20, 30 처럼 띄엄띄엄 매기면 사이에 끼워넣기 쉽다.
+   */
+  readonly order?: number;
 
   /** 채보. Runner 가 시작할 때 한 번 호출한다. */
   build(): BeatEvent[];
