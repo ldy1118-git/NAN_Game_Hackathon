@@ -73,6 +73,7 @@ src/
     MiniGame.ts     미니게임이 지켜야 할 계약
     ClapBot.ts      따라 치기
     RallyBall.ts    튕겨내기
+    beat.ts         공통 박자 유틸 (감쇠·예비동작·이벤트 조회)
     character.ts    캐릭터·손·충격파 그리기
     stage.ts        바닥·박자 점·배경 플래시
     index.ts        등록소
@@ -103,6 +104,13 @@ export class MyGame implements MiniGame {
   draw(g, r) { /* r.beat 만 보고 그린다 */ }
 }
 ```
+
+`draw()`를 쓸 때 자주 필요한 것들은 `minigames/beat.ts`에 있다. 매번 다시 만들지 말자.
+
+- `decay(beat, at, duration, power)` — 타점 직후 1에서 0으로 떨어지는 곡선. 스쿼시·스윙에 쓴다
+- `windUp(beat, next, window)` — 다음 타점이 다가올수록 커지는 예비동작 양.
+  동작이 "박자에 맞아 보이는" 건 대부분 이것 덕분이다
+- `prevBeat` / `nextBeat` / `prevAndNext` — 이벤트 목록에서 직전·다음 타점 찾기
 
 판정 창은 `core/types.ts`의 `WINDOW_MS`에 있다 (완벽 ±52ms, 좋음 ±112ms, 150ms 초과 시 놓침).
 BPM이 바뀌어도 체감 난이도가 같도록 박이 아니라 ms로 정의했다.

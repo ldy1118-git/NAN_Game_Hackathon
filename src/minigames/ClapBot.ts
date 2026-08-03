@@ -3,6 +3,7 @@ import { C, circle, clamp, easeOut, lerp, text } from '../core/draw';
 import type { BeatEvent, Verdict } from '../core/types';
 import { drawBody, drawHands, shockRing } from './character';
 import { basicGroove, type MiniGame, type RenderInfo } from './MiniGame';
+import { decay, nextBeat, prevAndNext, windUp } from './beat';
 import { GROUND_Y, drawStage } from './stage';
 
 /**
@@ -34,6 +35,8 @@ const BODY_W = 104;
 const BODY_H = 150;
 /** 배 높이. 손은 몸통보다 나중에 그려져 앞으로 나오되, 얼굴은 가리지 않는다. */
 const HAND_Y = 368;
+/** 손뼉 직후 몸이 눌렸다 돌아오는 데 걸리는 박. */
+const CLAP_DECAY = 0.55;
 
 export class ClapBot implements MiniGame {
   readonly id = 'clapbot';
@@ -95,7 +98,7 @@ export class ClapBot implements MiniGame {
     }
 
     // --- 로봇 ---
-    const botClap = lastAndNext(r.events, 'cue', beat);
+    const botClap = prevAndNext(r.events, 'cue', beat);
     const botSince = botClap.prev === null ? 99 : beat - botClap.prev;
     drawBody(g, {
       x: BOT_X,
@@ -103,7 +106,7 @@ export class ClapBot implements MiniGame {
       w: BODY_W,
       h: BODY_H,
       color: C.blue,
-      squash: hitEnvelope(botSince),
+      squash: decay(beat, botClap.prev, CLAP_DECAY, 2.4),
       hop: botSince < 0.5 ? easeOut(1 - botSince / 0.5, 2) * 8 : 0,
       look: 0.5,
       blink: botSince < 0.14 ? 1 : 0,
@@ -115,14 +118,14 @@ export class ClapBot implements MiniGame {
     const lj = r.lastJudge;
     const playerSince = lj ? beat - lj.atBeat : 99;
     const hitOk = lj != null && lj.verdict !== 'miss';
-    const nextHit = nextOf(r.events, 'hit', beat);
+    const nextHit = nextBeat(r.events, 'hit', beat);
     drawBody(g, {
       x: PLAYER_X,
       y: GROUND_Y,
       w: BODY_W,
       h: BODY_H,
       color: C.pink,
-      squash: hitOk ? hitEnvelope(playerSince) : 0,
+      squash: hitOk && lj ? decay(beat, lj.atBeat, CLAP_DECAY, 2.4) : 0,
       hop: hitOk && playerSince < 0.5 ? easeOut(1 - playerSince / 0.5, 2) * 8 : 0,
       look: -0.5,
       tilt: !hitOk && playerSince < 0.6 ? Math.sin(playerSince * 40) * 0.06 : 0,
@@ -155,47 +158,17 @@ export class ClapBot implements MiniGame {
 
 // ---------------------------------------------------------------------------
 
-/** 손뼉 직후 강하게 눌렸다 튀어오르는 엔벨로프. */
-function hitEnvelope(since: number): number {
-  if (since < 0 || since > 0.55) return 0;
-  return Math.pow(1 - since / 0.55, 2.4);
-}
-
 /**
  * 손 벌림 정도. 친 직후엔 붙어 있다가 벌어지고, 다음 타점 직전엔 예비동작으로
  * 크게 벌린다. 이 예비동작이 있어야 손뼉이 "박자에 맞아 보인다".
  */
 function handOpen(beat: number, cl: { prev: number | null; next: number | null }): number {
   const since = cl.prev === null ? 99 : beat - cl.prev;
-  const until = cl.next === null ? 99 : cl.next - beat;
-
   if (since < 0.08) return 0.04;
-  let open = clamp(since / 0.4, 0, 1);
-  if (until < 0.45) open = Math.max(open, 1) * (1 + (1 - until / 0.45) * 0.55);
-  return open;
-}
 
-function lastAndNext(
-  events: BeatEvent[],
-  kind: BeatEvent['kind'],
-  beat: number,
-): { prev: number | null; next: number | null } {
-  let prev: number | null = null;
-  let next: number | null = null;
-  for (const e of events) {
-    if (e.kind !== kind) continue;
-    if (e.beat <= beat) prev = e.beat;
-    else {
-      next = e.beat;
-      break;
-    }
-  }
-  return { prev, next };
-}
-
-function nextOf(events: BeatEvent[], kind: BeatEvent['kind'], beat: number): number | null {
-  for (const e of events) if (e.kind === kind && e.beat > beat) return e.beat;
-  return null;
+  const open = clamp(since / 0.4, 0, 1);
+  const wind = windUp(beat, cl.next, 0.45);
+  return wind > 0 ? Math.max(open, 1) * (1 + wind * 0.55) : open;
 }
 
 /** 메아리 점의 궤적. 로봇의 오른손에서 플레이어의 왼손까지. */

@@ -3,6 +3,7 @@ import { C, circle, clamp, lerp, roundRect, shadowed, text } from '../core/draw'
 import type { BeatEvent, Verdict } from '../core/types';
 import { drawBody } from './character';
 import { type MiniGame, type RenderInfo } from './MiniGame';
+import { decay, prevBeat } from './beat';
 import { GROUND_Y, drawStage } from './stage';
 
 /**
@@ -28,6 +29,8 @@ const PHRASES: number[][] = [
 
 const FOE = { x: 196, racketX: 262, racketY: 292 };
 const YOU = { x: 764, racketX: 698, racketY: 292 };
+/** 라켓을 휘두른 뒤 자세가 돌아오는 데 걸리는 박. */
+const SWING_DECAY = 0.45;
 
 export class RallyBall implements MiniGame {
   readonly id = 'rallyball';
@@ -133,7 +136,7 @@ export class RallyBall implements MiniGame {
     }
 
     // --- 상대 ---
-    const foeSwing = swingAmount(beat, lastOf(r.events, 'cue', beat));
+    const foeSwing = decay(beat, prevBeat(r.events, 'cue', beat), SWING_DECAY);
     drawBody(g, {
       x: FOE.x,
       y: GROUND_Y,
@@ -149,8 +152,8 @@ export class RallyBall implements MiniGame {
     // --- 나 ---
     const lj = r.lastJudge;
     const hitOk = lj != null && lj.verdict !== 'miss';
-    const youSwing = hitOk && lj ? swingAmount(beat, lj.atBeat) : 0;
-    const missShake = lj && lj.verdict === 'miss' ? swingAmount(beat, lj.atBeat) : 0;
+    const youSwing = hitOk && lj ? decay(beat, lj.atBeat, SWING_DECAY) : 0;
+    const missShake = lj && lj.verdict === 'miss' ? decay(beat, lj.atBeat, SWING_DECAY) : 0;
     drawBody(g, {
       x: YOU.x,
       y: GROUND_Y,
@@ -171,23 +174,6 @@ export class RallyBall implements MiniGame {
 }
 
 // ---------------------------------------------------------------------------
-
-function swingAmount(beat: number, at: number | null): number {
-  if (at === null) return 0;
-  const d = beat - at;
-  if (d < 0 || d > 0.45) return 0;
-  return Math.pow(1 - d / 0.45, 2);
-}
-
-function lastOf(events: BeatEvent[], kind: BeatEvent['kind'], beat: number): number | null {
-  let prev: number | null = null;
-  for (const e of events) {
-    if (e.kind !== kind) continue;
-    if (e.beat <= beat) prev = e.beat;
-    else break;
-  }
-  return prev;
-}
 
 /**
  * @param p       0(출발) ~ 1(도착)
