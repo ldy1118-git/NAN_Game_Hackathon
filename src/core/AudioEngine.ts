@@ -36,6 +36,11 @@ export class AudioEngine {
     this.master.gain.value = v;
   }
 
+  /** 커스텀 사운드를 붙일 수 있는 마스터 노드. 여기 연결하면 volume 컨트롤을 그대로 탄다. */
+  get output(): AudioNode {
+    return this.master;
+  }
+
   private env(t: number, attack: number, decay: number, peak: number): GainNode {
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);

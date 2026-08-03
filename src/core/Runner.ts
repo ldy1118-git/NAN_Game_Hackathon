@@ -42,6 +42,8 @@ export class Runner {
   private activeHold: BeatEvent | null = null;
   /** 그 hold 를 누를 때의 판정 — 뗄 때의 판정과 합쳐 최종 결과를 낸다. */
   private holdStartVerdict: Verdict = 'perfect';
+  private acceptedKeys: Set<string>;
+  private window: { perfect: number; good: number; expire: number };
 
   constructor(game: MiniGame, cond: Conductor, audio: AudioEngine, input: Input) {
     this.game = game;
@@ -52,6 +54,8 @@ export class Runner {
     this.stats = emptyStats(
       this.events.filter((e) => e.kind === 'hit' || e.kind === 'hold').length,
     );
+    this.acceptedKeys = new Set(game.acceptedKeys ?? ['Space', 'ArrowUp']);
+    this.window = game.hitWindowMs ?? WINDOW_MS;
   }
 
   get finished(): boolean {
@@ -88,13 +92,13 @@ export class Runner {
 
   private readInput(): void {
     for (const press of this.input.drain()) {
-      if (press.code !== 'Space' && press.code !== 'ArrowUp') continue;
-      if (press.kind === 'down') this.onPress(press.ctxTime);
+      if (!this.acceptedKeys.has(press.code)) continue;
+      if (press.kind === 'down') this.onPress(press.ctxTime, press.code);
       else this.onRelease(press.ctxTime);
     }
   }
 
-  private onPress(ctxTime: number): void {
+  private onPress(ctxTime: number, code: string): void {
     // 이미 누르고 있는 중이면 무시. (자동반복은 Input 에서 걸러진다)
     if (this.activeHold) return;
 
@@ -102,10 +106,13 @@ export class Runner {
     const sound = Math.max(this.audio.ctx.currentTime, ctxTime);
 
     // 아직 판정되지 않은 노트 중 가장 가까운 것을 찾는다.
+    // ev.data.key 가 있으면 그 키를 누른 입력만 매칭된다 (다중키 게임 지원).
     let best: BeatEvent | null = null;
     let bestDist = Infinity;
     for (const ev of this.events) {
       if ((ev.kind !== 'hit' && ev.kind !== 'hold') || ev.verdict) continue;
+      const requiredKey = ev.data?.key as string | undefined;
+      if (requiredKey && requiredKey !== code) continue;
       const d = Math.abs(ev.beat - pressBeat);
       if (d < bestDist) {
         bestDist = d;
@@ -115,7 +122,7 @@ export class Runner {
 
     const distMs = bestDist * this.cond.secPerBeat * 1000;
 
-    if (!best || distMs > WINDOW_MS.expire) {
+    if (!best || distMs > this.window.expire) {
       // 근처에 노트가 없는데 누른 것 — 노트를 소모하지 않고 감점만.
       this.stats.whiff++;
       this.combo = 0;
@@ -123,7 +130,7 @@ export class Runner {
       return;
     }
 
-    const verdict = verdictFor(distMs);
+    const verdict = this.verdictFor(distMs);
 
     if (best.kind === 'hold') {
       // 누른 시점만으로는 확정하지 않는다. 뗄 때까지 들고 있다가 합쳐서 판정.
@@ -136,7 +143,15 @@ export class Runner {
     }
 
     this.commit(best, verdict, pressBeat);
-    this.game.playerSound(sound, verdict, this.audio);
+    this.game.playerSound(sound, verdict, this.audio, best);
+  }
+
+  private verdictFor(distMs: number): Verdict {
+    return distMs <= this.window.perfect
+      ? 'perfect'
+      : distMs <= this.window.good
+      ? 'good'
+      : 'miss';
   }
 
   private onRelease(ctxTime: number): void {
@@ -150,7 +165,7 @@ export class Runner {
     ev.releasedBeat = releaseBeat;
 
     const distMs = Math.abs(ev.endBeat - releaseBeat) * this.cond.secPerBeat * 1000;
-    const final = worseVerdict(this.holdStartVerdict, verdictFor(distMs));
+    const final = worseVerdict(this.holdStartVerdict, this.verdictFor(distMs));
 
     this.commit(ev, final, ev.pressedBeat ?? releaseBeat);
     this.game.holdEnd?.(ev, Math.max(this.audio.ctx.currentTime, ctxTime), final, this.audio);
@@ -159,7 +174,7 @@ export class Runner {
   /** 판정 창을 완전히 지나쳤는데 처리되지 않은 노트를 놓침으로 확정. */
   private expireMissed(): void {
     const now = this.cond.beat;
-    const expireBeats = WINDOW_MS.expire / 1000 / this.cond.secPerBeat;
+    const expireBeats = this.window.expire / 1000 / this.cond.secPerBeat;
 
     for (const ev of this.events) {
       if (ev.verdict) continue;
@@ -199,10 +214,4 @@ export class Runner {
 
     this.lastJudge = { ev, verdict, atBeat: this.cond.beat };
   }
-}
-
-function verdictFor(distMs: number): Verdict {
-  if (distMs <= WINDOW_MS.perfect) return 'perfect';
-  if (distMs <= WINDOW_MS.good) return 'good';
-  return 'miss';
 }

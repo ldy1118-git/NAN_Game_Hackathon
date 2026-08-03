@@ -35,6 +35,16 @@ export interface MiniGame {
    * 쉬운 것부터 오도록 10, 20, 30 처럼 띄엄띄엄 매기면 사이에 끼워넣기 쉽다.
    */
   readonly order?: number;
+  /**
+   * 판정 입력으로 받아들일 키 코드. 생략하면 Space + ArrowUp (기존 동작).
+   * 여러 키를 쓰는 게임은 여기 명시하고, hit 이벤트의 data.key 로 필요한 키를 지정한다.
+   */
+  readonly acceptedKeys?: readonly string[];
+  /**
+   * 판정 창(ms) 오버라이드. 생략하면 core/types.ts 의 WINDOW_MS 를 쓴다.
+   * 두더지 잡기처럼 넓은 반응 창이 필요한 게임에서 사용.
+   */
+  readonly hitWindowMs?: { perfect: number; good: number; expire: number };
 
   /** 채보. Runner 가 시작할 때 한 번 호출한다. */
   build(): BeatEvent[];
@@ -45,8 +55,11 @@ export interface MiniGame {
   /** cue 이벤트(게임이 들려주는 신호)의 소리를 예약. */
   scheduleCue(ev: BeatEvent, t: number, a: AudioEngine): void;
 
-  /** 플레이어가 눌렀을 때 나는 소리. */
-  playerSound(t: number, v: Verdict, a: AudioEngine): void;
+  /**
+   * 플레이어가 눌렀을 때 나는 소리.
+   * @param ev 판정된 hit 이벤트. 여러 키 중 어느 키가 눌렸는지 필요한 게임(피아노 등)에서 사용.
+   */
+  playerSound(t: number, v: Verdict, a: AudioEngine, ev?: BeatEvent): void;
 
   /**
    * hold 노트를 누르기 시작했을 때. 누르는 동안 이어지는 소리를 켜는 자리다.
