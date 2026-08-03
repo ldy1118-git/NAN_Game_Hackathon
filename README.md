@@ -8,6 +8,8 @@ npm run dev      # http://localhost:5173
 npm run build    # 타입체크 + dist/ 생성 (base './' 라 파일 열기로도 실행됨)
 ```
 
+같이 개발한다면 [CONTRIBUTING.md](./CONTRIBUTING.md)의 브랜치·충돌 규칙을 먼저 읽자.
+
 ## 지금 들어있는 것
 
 | 미니게임 | 내용 |
