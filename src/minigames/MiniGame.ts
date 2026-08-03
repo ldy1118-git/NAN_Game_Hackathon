@@ -40,6 +40,16 @@ export interface MiniGame {
   /** 플레이어가 눌렀을 때 나는 소리. */
   playerSound(t: number, v: Verdict, a: AudioEngine): void;
 
+  /**
+   * hold 노트를 누르기 시작했을 때. 누르는 동안 이어지는 소리를 켜는 자리다.
+   * 이 소리는 예약이 아니라 반응이므로 지금 시각에 바로 시작해도 된다 —
+   * 박자를 알려주는 신호가 아니라 입력에 대한 피드백이기 때문이다.
+   */
+  holdStart?(ev: BeatEvent, t: number, v: Verdict, a: AudioEngine): void;
+
+  /** hold 노트를 뗐을 때(또는 놓쳐서 강제 종료됐을 때). 이어지던 소리를 끈다. */
+  holdEnd?(ev: BeatEvent, t: number, v: Verdict, a: AudioEngine): void;
+
   draw(g: CanvasRenderingContext2D, r: RenderInfo): void;
 }
 

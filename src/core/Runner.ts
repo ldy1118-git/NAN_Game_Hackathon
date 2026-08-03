@@ -1,7 +1,14 @@
 import type { AudioEngine } from './AudioEngine';
 import type { Conductor } from './Conductor';
 import type { Input } from './Input';
-import { WINDOW_MS, emptyStats, type BeatEvent, type JudgeStats, type Verdict } from './types';
+import {
+  WINDOW_MS,
+  emptyStats,
+  worseVerdict,
+  type BeatEvent,
+  type JudgeStats,
+  type Verdict,
+} from './types';
 import type { MiniGame } from '../minigames/MiniGame';
 
 /** 오디오를 몇 초 앞까지 미리 예약할지. 이보다 프레임이 늦게 돌면 소리가 밀린다. */
@@ -31,6 +38,10 @@ export class Runner {
   private input: Input;
   /** 다음에 예약할 8분음표 스텝 인덱스. */
   private nextStep = 0;
+  /** 지금 누르고 있는 hold 노트. 뗄 때 이걸로 마무리 판정한다. */
+  private activeHold: BeatEvent | null = null;
+  /** 그 hold 를 누를 때의 판정 — 뗄 때의 판정과 합쳐 최종 결과를 낸다. */
+  private holdStartVerdict: Verdict = 'perfect';
 
   constructor(game: MiniGame, cond: Conductor, audio: AudioEngine, input: Input) {
     this.game = game;
@@ -38,7 +49,9 @@ export class Runner {
     this.audio = audio;
     this.input = input;
     this.events = game.build();
-    this.stats = emptyStats(this.events.filter((e) => e.kind === 'hit').length);
+    this.stats = emptyStats(
+      this.events.filter((e) => e.kind === 'hit' || e.kind === 'hold').length,
+    );
   }
 
   get finished(): boolean {
@@ -76,48 +89,98 @@ export class Runner {
   private readInput(): void {
     for (const press of this.input.drain()) {
       if (press.code !== 'Space' && press.code !== 'ArrowUp') continue;
-
-      const pressBeat = this.cond.pressToBeat(press.ctxTime);
-      const sound = Math.max(this.audio.ctx.currentTime, press.ctxTime);
-
-      // 아직 판정되지 않은 hit 중 가장 가까운 것을 찾는다.
-      let best: BeatEvent | null = null;
-      let bestDist = Infinity;
-      for (const ev of this.events) {
-        if (ev.kind !== 'hit' || ev.verdict) continue;
-        const d = Math.abs(ev.beat - pressBeat);
-        if (d < bestDist) {
-          bestDist = d;
-          best = ev;
-        }
-      }
-
-      const distMs = bestDist * this.cond.secPerBeat * 1000;
-
-      if (!best || distMs > WINDOW_MS.expire) {
-        // 근처에 노트가 없는데 누른 것 — 노트를 소모하지 않고 감점만.
-        this.stats.whiff++;
-        this.combo = 0;
-        this.audio.bad(sound);
-        continue;
-      }
-
-      const verdict: Verdict =
-        distMs <= WINDOW_MS.perfect ? 'perfect' : distMs <= WINDOW_MS.good ? 'good' : 'miss';
-
-      this.commit(best, verdict, pressBeat);
-      this.game.playerSound(sound, verdict, this.audio);
+      if (press.kind === 'down') this.onPress(press.ctxTime);
+      else this.onRelease(press.ctxTime);
     }
   }
 
-  /** 판정 창을 완전히 지나쳤는데 안 눌린 노트를 놓침으로 확정. */
+  private onPress(ctxTime: number): void {
+    // 이미 누르고 있는 중이면 무시. (자동반복은 Input 에서 걸러진다)
+    if (this.activeHold) return;
+
+    const pressBeat = this.cond.pressToBeat(ctxTime);
+    const sound = Math.max(this.audio.ctx.currentTime, ctxTime);
+
+    // 아직 판정되지 않은 노트 중 가장 가까운 것을 찾는다.
+    let best: BeatEvent | null = null;
+    let bestDist = Infinity;
+    for (const ev of this.events) {
+      if ((ev.kind !== 'hit' && ev.kind !== 'hold') || ev.verdict) continue;
+      const d = Math.abs(ev.beat - pressBeat);
+      if (d < bestDist) {
+        bestDist = d;
+        best = ev;
+      }
+    }
+
+    const distMs = bestDist * this.cond.secPerBeat * 1000;
+
+    if (!best || distMs > WINDOW_MS.expire) {
+      // 근처에 노트가 없는데 누른 것 — 노트를 소모하지 않고 감점만.
+      this.stats.whiff++;
+      this.combo = 0;
+      this.audio.bad(sound);
+      return;
+    }
+
+    const verdict = verdictFor(distMs);
+
+    if (best.kind === 'hold') {
+      // 누른 시점만으로는 확정하지 않는다. 뗄 때까지 들고 있다가 합쳐서 판정.
+      best.pressedBeat = pressBeat;
+      best.holding = true;
+      this.activeHold = best;
+      this.holdStartVerdict = verdict;
+      this.game.holdStart?.(best, sound, verdict, this.audio);
+      return;
+    }
+
+    this.commit(best, verdict, pressBeat);
+    this.game.playerSound(sound, verdict, this.audio);
+  }
+
+  private onRelease(ctxTime: number): void {
+    const ev = this.activeHold;
+    if (!ev || ev.endBeat === undefined) return;
+
+    this.activeHold = null;
+    ev.holding = false;
+
+    const releaseBeat = this.cond.pressToBeat(ctxTime);
+    ev.releasedBeat = releaseBeat;
+
+    const distMs = Math.abs(ev.endBeat - releaseBeat) * this.cond.secPerBeat * 1000;
+    const final = worseVerdict(this.holdStartVerdict, verdictFor(distMs));
+
+    this.commit(ev, final, ev.pressedBeat ?? releaseBeat);
+    this.game.holdEnd?.(ev, Math.max(this.audio.ctx.currentTime, ctxTime), final, this.audio);
+  }
+
+  /** 판정 창을 완전히 지나쳤는데 처리되지 않은 노트를 놓침으로 확정. */
   private expireMissed(): void {
     const now = this.cond.beat;
-    const expireBeats = (WINDOW_MS.expire / 1000) / this.cond.secPerBeat;
+    const expireBeats = WINDOW_MS.expire / 1000 / this.cond.secPerBeat;
+
     for (const ev of this.events) {
-      if (ev.kind !== 'hit' || ev.verdict) continue;
-      if (now > ev.beat + expireBeats) {
-        this.commit(ev, 'miss', ev.beat + expireBeats);
+      if (ev.verdict) continue;
+
+      if (ev.kind === 'hit') {
+        if (now > ev.beat + expireBeats) this.commit(ev, 'miss', ev.beat + expireBeats);
+        continue;
+      }
+
+      if (ev.kind !== 'hold' || ev.endBeat === undefined) continue;
+
+      if (!ev.holding) {
+        // 아예 누르지 않고 지나쳤다
+        if (now > ev.beat + expireBeats) this.commit(ev, 'miss', ev.beat + expireBeats);
+      } else if (now > ev.endBeat + expireBeats) {
+        // 누르긴 했는데 뗄 시점을 한참 넘겼다
+        ev.holding = false;
+        this.activeHold = null;
+        this.commit(ev, 'miss', ev.endBeat + expireBeats);
+        this.audio.bad(this.audio.ctx.currentTime);
+        this.game.holdEnd?.(ev, this.audio.ctx.currentTime, 'miss', this.audio);
       }
     }
   }
@@ -136,4 +199,10 @@ export class Runner {
 
     this.lastJudge = { ev, verdict, atBeat: this.cond.beat };
   }
+}
+
+function verdictFor(distMs: number): Verdict {
+  if (distMs <= WINDOW_MS.perfect) return 'perfect';
+  if (distMs <= WINDOW_MS.good) return 'good';
+  return 'miss';
 }

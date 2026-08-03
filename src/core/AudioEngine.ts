@@ -136,6 +136,45 @@ export class AudioEngine {
     o.stop(t + dur + 0.1);
   }
 
+  /**
+   * 충전음 — 누르고 있는 동안 이어지고, 뗄 때 stop() 한다.
+   *
+   * 이 엔진의 다른 소리와 달리 "지금 시작해서 언제 끝날지 모르는" 소리다.
+   * 대신 목표 지속시간(dur)만큼 음정을 끌어올려서, 다 찼을 때의 높이를
+   * 귀로 알 수 있게 한다 — 게이지를 안 봐도 뗄 타이밍이 들린다.
+   */
+  charge(t: number, dur: number): { stop: (at: number) => void } {
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(196, t);
+    osc.frequency.linearRampToValueAtTime(587.33, t + dur);
+
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(900, t);
+    lp.frequency.linearRampToValueAtTime(3200, t + dur);
+
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.16, t + 0.03);
+
+    osc.connect(lp).connect(g).connect(this.master);
+    osc.start(t);
+
+    let stopped = false;
+    return {
+      stop: (at: number) => {
+        if (stopped) return;
+        stopped = true;
+        const end = Math.max(at, this.ctx.currentTime);
+        g.gain.cancelScheduledValues(end);
+        g.gain.setValueAtTime(Math.max(g.gain.value, 0.0002), end);
+        g.gain.exponentialRampToValueAtTime(0.0001, end + 0.05);
+        osc.stop(end + 0.12);
+      },
+    };
+  }
+
   /** 성공 — 위로 붙는 두 음. */
   good(t: number): void {
     this.blip(t, 880, 0.7, 'square');

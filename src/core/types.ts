@@ -1,22 +1,38 @@
 export type Verdict = 'perfect' | 'good' | 'miss';
 
-/** 게임이 스스로 연주하는 신호(cue)냐, 플레이어가 쳐야 하는 것(hit)이냐. */
-export type EventKind = 'cue' | 'hit';
+/**
+ * cue  — 게임이 스스로 연주하는 신호
+ * hit  — 플레이어가 한 번 쳐야 하는 것
+ * hold — 눌렀다가 endBeat 에 정확히 떼야 하는 것 (누름·뗌 양쪽을 판정한다)
+ */
+export type EventKind = 'cue' | 'hit' | 'hold';
 
 export interface BeatEvent {
   /** 이 이벤트가 일어나는 박. 모든 위치·애니메이션이 여기서 파생된다. */
   beat: number;
   kind: EventKind;
+  /** hold 전용 — 손을 떼야 하는 박. */
+  endBeat?: number;
   /** 미니게임이 자유롭게 쓰는 필드 (음정, 공 종류, 연결된 cue 박 등). */
   data?: Record<string, number | string | boolean>;
 
   // --- 런타임 상태. 미니게임이 아니라 Runner 가 채운다. ---
   /** 오디오 예약을 이미 걸었는지. */
   scheduled?: boolean;
-  /** 판정 결과. null 이면 아직 미판정. */
+  /** 판정 결과. 없으면 아직 미판정. */
   verdict?: Verdict;
   /** 실제로 눌린 박. 판정 오차를 그릴 때 쓴다. */
   pressedBeat?: number;
+  /** hold 전용 — 실제로 뗀 박. */
+  releasedBeat?: number;
+  /** hold 전용 — 지금 누르고 있는 중인지. 게이지를 그릴 때 쓴다. */
+  holding?: boolean;
+}
+
+/** miss > good > perfect 순으로 나쁜 쪽을 고른다. hold 는 누름·뗌 중 나쁜 쪽이 최종 판정. */
+export function worseVerdict(a: Verdict, b: Verdict): Verdict {
+  const rank: Record<Verdict, number> = { perfect: 0, good: 1, miss: 2 };
+  return rank[a] >= rank[b] ? a : b;
 }
 
 /** 판정 창(박 단위가 아니라 ms — BPM 이 바뀌어도 체감 난이도가 같도록). */

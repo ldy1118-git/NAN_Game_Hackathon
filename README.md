@@ -16,6 +16,7 @@ npm run build    # 타입체크 + dist/ 생성 (base './' 라 파일 열기로�
 | --- | --- |
 | 따라 치기 | 로봇이 4박 손뼉 패턴을 들려주면 다음 4박에 그대로 따라 친다 |
 | 튕겨내기 | 날아오는 공을 라켓에 닿는 순간 받아친다. 공은 2박(파랑)과 1박(분홍) 두 속도 |
+| 충전하기 | 누르고 있다가 게이지가 목표선에 닿는 순간 뗀다. 로봇 키가 곧 충전 시간(1·2·3박) |
 | 타이밍 맞추기 | 입력 지연 측정 및 보정 |
 
 조작은 스페이스(또는 화면 클릭) 하나. Esc로 나가기.
@@ -73,6 +74,7 @@ src/
     MiniGame.ts     미니게임이 지켜야 할 계약
     ClapBot.ts      따라 치기
     RallyBall.ts    튕겨내기
+    ChargeBot.ts    충전하기 (hold 노트 예제)
     beat.ts         공통 박자 유틸 (감쇠·예비동작·이벤트 조회)
     character.ts    캐릭터·손·충격파 그리기
     stage.ts        바닥·박자 점·배경 플래시
@@ -94,8 +96,11 @@ export class MyGame implements MiniGame {
   readonly endBeat = 64;
 
   build(): BeatEvent[] {
-    // kind: 'cue' = 게임이 들려주는 신호, 'hit' = 플레이어가 쳐야 하는 것
-    return [{ beat: 4, kind: 'hit' }];
+    return [
+      { beat: 4, kind: 'cue' },                    // 게임이 들려주는 신호
+      { beat: 8, kind: 'hit' },                    // 한 번 친다
+      { beat: 12, kind: 'hold', endBeat: 14 },     // 12박에 눌러 14박에 뗀다
+    ];
   }
 
   groove(step, t, a) { basicGroove(step, t, a); }   // step = 8분음표 인덱스
@@ -114,6 +119,11 @@ export class MyGame implements MiniGame {
 
 판정 창은 `core/types.ts`의 `WINDOW_MS`에 있다 (완벽 ±52ms, 좋음 ±112ms, 150ms 초과 시 놓침).
 BPM이 바뀌어도 체감 난이도가 같도록 박이 아니라 ms로 정의했다.
+
+**`hold` 노트**는 누른 시각과 뗀 시각을 모두 판정하고, **둘 중 나쁜 쪽이 최종 판정**이다.
+대충 누르고 정확히 떼는 걸로는 완벽이 안 나온다. 누르는 동안 이어지는 소리가 필요하면
+`holdStart` / `holdEnd` 를 구현한다 — 이 소리는 박자 신호가 아니라 입력 피드백이므로
+예약이 아니라 즉시 재생해도 된다 (`AudioEngine.charge()` 참고).
 
 ## 개발 중 디버깅
 

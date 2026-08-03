@@ -70,7 +70,8 @@ export class CalibrationScene implements Scene {
     }
 
     for (const p of this.app.input.drain()) {
-      if (p.code !== 'Space') continue;
+      // 키를 뗀 것은 탭이 아니다 — hold 노트 때문에 up 도 같은 큐로 들어온다.
+      if (p.code !== 'Space' || p.kind !== 'down') continue;
       const raw = c.pressToBeat(p.ctxTime); // inputOffset = 0 이므로 날것
       if (raw < 0.5) continue;
       const err = (raw - Math.round(raw)) * c.secPerBeat;

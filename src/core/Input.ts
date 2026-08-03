@@ -9,8 +9,13 @@
  */
 export interface Press {
   code: string;
-  /** 키가 눌린 순간의 AudioContext 시각(초). */
+  /** 키가 눌리거나 떼진 순간의 AudioContext 시각(초). */
   ctxTime: number;
+  /**
+   * 눌림인지 뗌인지. 길게 누르는 노트(hold)는 두 시각이 모두 필요하다.
+   * 순서가 중요하므로 down/up 을 한 큐에 담는다.
+   */
+  kind: 'down' | 'up';
 }
 
 const GAMEPLAY_KEYS = new Set(['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
@@ -27,6 +32,9 @@ export class Input {
     window.addEventListener('keyup', this.onKeyUp);
     // 마우스/터치도 스페이스와 동일하게 취급 — 모바일에서도 그대로 돌아가도록.
     window.addEventListener('pointerdown', this.onPointerDown);
+    window.addEventListener('pointerup', this.onPointerUp);
+    // 창에서 포커스가 나가면 키를 뗀 것으로 본다. 안 그러면 hold 가 눌린 채로 남는다.
+    window.addEventListener('blur', this.onBlur);
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
@@ -34,21 +42,37 @@ export class Input {
     if (e.repeat) return; // 꾹 누르고 있는 자동반복은 입력이 아니다
     this.held.add(e.code);
 
-    const lag = Math.max(0, (performance.now() - e.timeStamp) / 1000);
-    this.queue.push({ code: e.code, ctxTime: this.ctx.currentTime - lag });
+    this.queue.push({ code: e.code, ctxTime: this.stamp(e), kind: 'down' });
 
     for (const h of this.uiHandlers) h(e.code);
   };
 
   private onKeyUp = (e: KeyboardEvent): void => {
-    this.held.delete(e.code);
+    if (!this.held.delete(e.code)) return;
+    this.queue.push({ code: e.code, ctxTime: this.stamp(e), kind: 'up' });
   };
 
   private onPointerDown = (e: PointerEvent): void => {
-    const lag = Math.max(0, (performance.now() - e.timeStamp) / 1000);
-    this.queue.push({ code: 'Space', ctxTime: this.ctx.currentTime - lag });
+    this.queue.push({ code: 'Space', ctxTime: this.stamp(e), kind: 'down' });
     for (const h of this.uiHandlers) h('Space');
   };
+
+  private onPointerUp = (e: PointerEvent): void => {
+    this.queue.push({ code: 'Space', ctxTime: this.stamp(e), kind: 'up' });
+  };
+
+  private onBlur = (): void => {
+    for (const code of this.held) {
+      this.queue.push({ code, ctxTime: this.ctx.currentTime, kind: 'up' });
+    }
+    this.held.clear();
+  };
+
+  /** 이벤트가 만들어진 시각을 AudioContext 시간축으로 되감아 기록한다. */
+  private stamp(e: KeyboardEvent | PointerEvent): number {
+    const lag = Math.max(0, (performance.now() - e.timeStamp) / 1000);
+    return this.ctx.currentTime - lag;
+  }
 
   /** 이번 프레임에 들어온 입력을 가져가고 큐를 비운다. */
   drain(): Press[] {
