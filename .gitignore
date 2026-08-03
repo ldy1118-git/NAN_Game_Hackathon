@@ -1,0 +1,6 @@
+node_modules
+dist
+
+# Claude Code 로컬 권한 설정 — 사람마다 다르므로 공유하지 않는다
+.claude/settings.local.json
+.claude/settings.local.json.tmp.*
