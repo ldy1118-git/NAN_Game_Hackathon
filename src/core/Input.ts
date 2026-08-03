@@ -18,7 +18,10 @@ export interface Press {
   kind: 'down' | 'up';
 }
 
-const GAMEPLAY_KEYS = new Set(['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
+const GAMEPLAY_KEYS = new Set([
+  'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+  'KeyQ', 'KeyW', 'KeyE', 'KeyI', 'KeyO', 'KeyP',
+]);
 
 export class Input {
   private ctx: AudioContext;
