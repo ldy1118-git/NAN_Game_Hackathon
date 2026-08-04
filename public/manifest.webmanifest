@@ -1,0 +1,16 @@
+{
+  "name": "NAN GAME — 리듬 미니게임",
+  "short_name": "NAN GAME",
+  "description": "박자에 맞춰 누르는 리듬천국식 콜 앤 리스폰스 미니게임 모음.",
+  "lang": "ko",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#14131A",
+  "theme_color": "#FBF3E4",
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
