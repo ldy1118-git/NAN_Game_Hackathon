@@ -17,12 +17,20 @@ const VERDICT_COLOR: Record<Verdict, string> = {
   miss: C.inkSoft,
 };
 
+/** 재개할 때 세어주는 박 수. 손이 다시 박자에 올라탈 시간을 준다. */
+const RESUME_COUNT = 3;
+
+type Phase = 'playing' | 'paused' | 'resuming';
+
 export class PlayScene implements Scene {
   private app!: App;
   private runner!: Runner;
   private entry: MiniGameEntry;
   private off: (() => void) | null = null;
   private done = false;
+  private phase: Phase = 'playing';
+  /** 재개 카운트다운에 남은 시간(초). 박자와 무관한 연출이라 벽시계로 센다. */
+  private resumeLeft = 0;
 
   constructor(entry: MiniGameEntry) {
     this.entry = entry;
@@ -34,9 +42,7 @@ export class PlayScene implements Scene {
     // 리드인을 넉넉히 둬서 스케줄러가 첫 마디를 미리 채울 시간을 준다.
     app.conductor.start(game.bpm, 1.4);
     this.runner = new Runner(game, app.conductor, app.audio, app.input);
-    this.off = app.input.onUiKey((code) => {
-      if (code === 'Escape') app.setScene(new TitleScene());
-    });
+    this.off = app.input.onUiKey((code) => this.onKey(code));
   }
 
   exit(): void {
@@ -44,8 +50,57 @@ export class PlayScene implements Scene {
     this.app.conductor.stop();
   }
 
-  update(): void {
+  private onKey(code: string): void {
     if (this.done) return;
+    if (this.phase === 'playing') {
+      // Esc 가 곧바로 타이틀이면 실수로 한 판이 날아간다. 먼저 멈추고 묻는다.
+      if (code === 'Escape') this.pause();
+      return;
+    }
+    if (code === 'Escape') {
+      this.app.setScene(new TitleScene());
+    } else if (code === 'Space' || code === 'Enter') {
+      this.startResume();
+    }
+  }
+
+  /**
+   * 탭이 백그라운드로 갔거나 루프가 오래 멈췄다 돌아왔을 때 App 이 부른다.
+   * 이미 멈춰 있으면 아무 일도 하지 않는다.
+   */
+  onStall(gapSec: number): void {
+    if (this.done || this.phase === 'paused') return;
+    this.pause(gapSec);
+  }
+
+  private pause(rewindSec = 0): void {
+    this.app.conductor.pause(rewindSec);
+    // 누르고 있던 hold 를 놓아주고, 멈춘 뒤로 걸린 예약을 되돌린다.
+    this.runner.interrupt();
+    this.app.input.clear();
+    this.phase = 'paused';
+  }
+
+  private startResume(): void {
+    this.resumeLeft = RESUME_COUNT * this.app.conductor.secPerBeat;
+    this.phase = 'resuming';
+  }
+
+  update(dt: number): void {
+    if (this.done) return;
+
+    if (this.phase === 'paused') return;
+
+    if (this.phase === 'resuming') {
+      // 카운트다운 동안에도 시간은 멈춰 있다 — 판정도 예약도 돌지 않는다.
+      this.resumeLeft -= dt;
+      if (this.resumeLeft > 0) return;
+      this.app.conductor.resume();
+      // 멈춰 있는 동안 눌린 키가 재개 직후 판정으로 새는 걸 막는다.
+      this.app.input.clear();
+      this.phase = 'playing';
+    }
+
     this.runner.update();
     if (this.runner.finished) {
       this.done = true;
@@ -77,6 +132,48 @@ export class PlayScene implements Scene {
     g.restore();
 
     this.drawHud(g, beat);
+    if (this.phase !== 'playing') this.drawPauseOverlay(g);
+  }
+
+  /** 멈춤·재개 화면. 게임 위에 반투명하게 덮는다. */
+  private drawPauseOverlay(g: CanvasRenderingContext2D): void {
+    g.save();
+    g.fillStyle = 'rgba(250, 245, 235, 0.86)';
+    g.fillRect(0, 0, W, H);
+
+    if (this.phase === 'resuming') {
+      const n = Math.max(1, Math.ceil(this.resumeLeft / this.app.conductor.secPerBeat));
+      // 숫자가 바뀔 때마다 한 번 크게 튀었다가 가라앉는다.
+      const within = this.resumeLeft / this.app.conductor.secPerBeat;
+      const pop = easeOut(1 - (within - Math.floor(within)), 3);
+      text(g, `${n}`, W / 2, H / 2 - 10, {
+        size: 92 + pop * 26,
+        color: C.pink,
+      });
+      text(g, '준비하세요', W / 2, H / 2 + 66, {
+        size: 18,
+        color: C.inkSoft,
+        weight: 600,
+      });
+      g.restore();
+      return;
+    }
+
+    text(g, '일시정지', W / 2, H / 2 - 46, { size: 46, color: C.ink });
+    text(g, '스페이스로 이어서 · Esc 로 나가기', W / 2, H / 2 + 14, {
+      size: 18,
+      color: C.inkSoft,
+      weight: 600,
+    });
+
+    const s = this.runner.stats;
+    text(g, `완벽 ${s.perfect} · 좋음 ${s.good} · 놓침 ${s.miss}`, W / 2, H / 2 + 62, {
+      size: 15,
+      color: C.inkSoft,
+      weight: 500,
+      alpha: 0.8,
+    });
+    g.restore();
   }
 
   private drawHud(g: CanvasRenderingContext2D, beat: number): void {

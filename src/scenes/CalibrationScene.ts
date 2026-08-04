@@ -41,6 +41,18 @@ export class CalibrationScene implements Scene {
     this.off?.();
   }
 
+  /**
+   * 멈췄다 돌아왔을 때. 그동안의 클릭을 놓친 상태라 여기서 이어 재면
+   * 엉뚱한 값이 섞인다. 측정은 처음부터 다시 한다.
+   */
+  onStall(): void {
+    this.samples.length = 0;
+    this.lastTapBeat = -99;
+    this.nextStep = 0;
+    this.app.conductor.start(BPM, 1.2);
+    this.app.input.clear();
+  }
+
   private finish(save: boolean): void {
     if (save && this.usable.length > 0) {
       this.app.saveInputOffset(median(this.usable));

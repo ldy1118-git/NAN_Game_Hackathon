@@ -38,6 +38,15 @@ export class TitleScene implements Scene {
     this.off?.();
   }
 
+  /**
+   * 멈췄다 돌아왔을 때. 메뉴는 판정이 없으니 그냥 박자를 지금부터 다시 센다.
+   * 그대로 두면 스케줄러가 자리를 비운 시간만큼의 스텝을 한 프레임에 훑는다.
+   */
+  onStall(): void {
+    this.app.conductor.start(MENU_BPM, 0.25);
+    this.nextStep = 0;
+  }
+
   private onKey(code: string): void {
     const n = this.items.length;
     if (code === 'ArrowDown' || code === 'KeyS') {

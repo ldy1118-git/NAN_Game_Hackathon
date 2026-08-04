@@ -1,3 +1,6 @@
+/** 이만큼보다 더 과거인 예약은 버린다. 자세한 이유는 stale() 참고. */
+const STALE_TOLERANCE_SEC = 0.05;
+
 /**
  * AudioEngine — 오디오 파일 없이 Web Audio 로 직접 소리를 만든다.
  *
@@ -36,6 +39,24 @@ export class AudioEngine {
     this.master.gain.value = v;
   }
 
+  /**
+   * 이미 지나간 시각의 예약인가.
+   *
+   * Web Audio 는 과거 시각을 "즉시"로 처리한다. 탭이 백그라운드로 가면
+   * requestAnimationFrame 은 멈추지만 ctx.currentTime 은 계속 흐르므로,
+   * 돌아온 첫 프레임에서 스케줄러가 밀린 구간을 한꺼번에 따라잡으면 수십 개의
+   * 소리가 같은 순간에 터진다. 8초만 자리를 비워도 78개 중 76개가 과거 시각이었다.
+   *
+   * 그래서 "예약은 언제나 미래에"를 여기서 불변식으로 지킨다. 호출하는 쪽마다
+   * 막으면 새 미니게임이 생길 때마다 다시 뚫린다.
+   *
+   * 허용 오차 50ms 는 "지금 재생"으로 부른 소리(입력 피드백처럼 ctx.currentTime 을
+   * 그대로 넘기는 경우)가 프레임 사이 시간이 흘러 과거가 되는 걸 살려두기 위한 것이다.
+   */
+  private stale(t: number): boolean {
+    return t < this.ctx.currentTime - STALE_TOLERANCE_SEC;
+  }
+
   /** 커스텀 사운드를 붙일 수 있는 마스터 노드. 여기 연결하면 volume 컨트롤을 그대로 탄다. */
   get output(): AudioNode {
     return this.master;
@@ -59,6 +80,7 @@ export class AudioEngine {
   }
 
   kick(t: number, gain = 1): void {
+    if (this.stale(t)) return;
     const o = this.ctx.createOscillator();
     o.type = 'sine';
     o.frequency.setValueAtTime(165, t);
@@ -70,6 +92,7 @@ export class AudioEngine {
   }
 
   snare(t: number, gain = 1): void {
+    if (this.stale(t)) return;
     const s = this.noiseSource(t, 0.2);
     const bp = this.ctx.createBiquadFilter();
     bp.type = 'bandpass';
@@ -90,6 +113,7 @@ export class AudioEngine {
   }
 
   hat(t: number, gain = 1): void {
+    if (this.stale(t)) return;
     const s = this.noiseSource(t, 0.06);
     const hp = this.ctx.createBiquadFilter();
     hp.type = 'highpass';
@@ -100,6 +124,7 @@ export class AudioEngine {
 
   /** 손뼉 — 아주 짧은 간격의 노이즈 3연타로 "짝" 하는 질감을 만든다. */
   clap(t: number, gain = 1): void {
+    if (this.stale(t)) return;
     for (let i = 0; i < 3; i++) {
       const at = t + i * 0.011;
       const s = this.noiseSource(at, 0.09);
@@ -114,6 +139,7 @@ export class AudioEngine {
 
   /** 음정이 있는 짧은 신호음. 콜(안내)과 리스폰스(내 입력)를 음색으로 구분한다. */
   blip(t: number, freq: number, gain = 1, type: OscillatorType = 'triangle'): void {
+    if (this.stale(t)) return;
     const o = this.ctx.createOscillator();
     o.type = type;
     o.frequency.setValueAtTime(freq, t);
@@ -128,6 +154,7 @@ export class AudioEngine {
 
   /** 베이스 — 8분음표 그루브의 바닥을 깐다. */
   bass(t: number, freq: number, dur = 0.22, gain = 1): void {
+    if (this.stale(t)) return;
     const o = this.ctx.createOscillator();
     o.type = 'sawtooth';
     o.frequency.setValueAtTime(freq, t);
@@ -149,6 +176,7 @@ export class AudioEngine {
    * 귀로 알 수 있게 한다 — 게이지를 안 봐도 뗄 타이밍이 들린다.
    */
   charge(t: number, dur: number): { stop: (at: number) => void } {
+    if (this.stale(t)) return { stop: () => {} };
     const osc = this.ctx.createOscillator();
     osc.type = 'sawtooth';
     osc.frequency.setValueAtTime(196, t);
@@ -182,12 +210,14 @@ export class AudioEngine {
 
   /** 성공 — 위로 붙는 두 음. */
   good(t: number): void {
+    if (this.stale(t)) return;
     this.blip(t, 880, 0.7, 'square');
     this.blip(t + 0.055, 1318, 0.55, 'square');
   }
 
   /** 실패 — 아래로 처지는 짧은 버즈. */
   bad(t: number): void {
+    if (this.stale(t)) return;
     const o = this.ctx.createOscillator();
     o.type = 'sawtooth';
     o.frequency.setValueAtTime(190, t);

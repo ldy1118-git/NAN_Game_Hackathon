@@ -68,6 +68,27 @@ export class Runner {
     this.expireMissed();
   }
 
+  /**
+   * 흐름이 끊겼을 때(일시정지·탭 전환) 스케줄러를 정리한다.
+   *
+   * 두 가지를 되돌린다.
+   *   1. 누르고 있던 hold — 그냥 두면 onPress 가 계속 early return 해서
+   *      재개 후 아무 노트도 칠 수 없게 된다.
+   *   2. 멈춘 지점 이후로 이미 걸어둔 예약 — 그 소리들은 멈춰 있는 동안
+   *      울려버리므로, 표시를 지워 재개할 때 다시 걸리게 한다.
+   */
+  interrupt(): void {
+    this.activeHold = null;
+    this.holdStartVerdict = 'perfect';
+
+    const beat = this.cond.beat;
+    // 지금 박에 걸린 스텝은 이미 예약돼 울렸다고 보고 다음 것부터 다시 건다.
+    this.nextStep = Math.max(0, Math.floor(beat / 0.5) + 1);
+    for (const ev of this.events) {
+      if (ev.scheduled && ev.beat > beat) ev.scheduled = false;
+    }
+  }
+
   /** 아직 예약하지 않은 미래의 소리를 LOOKAHEAD 만큼 앞서 걸어둔다. */
   private scheduleAhead(): void {
     const horizon = this.cond.scheduleBeat + LOOKAHEAD_SEC / this.cond.secPerBeat;
