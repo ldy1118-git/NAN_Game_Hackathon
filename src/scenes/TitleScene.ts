@@ -11,8 +11,10 @@ const TITLE_LOOKAHEAD = 0.08;
 
 /** 한 번에 보여줄 메뉴 줄 수. 미니게임이 더 늘어나면 나머지는 스크롤된다. */
 const VISIBLE_ROWS = 5;
-const ROW_H = 56;
-const MENU_TOP = 182;
+const ROW_H = 50;
+const MENU_TOP = 176;
+/** 스크롤 화살표를 놓을 자리. 목록 위아래로 이만큼 띄운다. */
+const ARROW_GAP = 10;
 
 export class TitleScene implements Scene {
   private app!: App;
@@ -100,7 +102,7 @@ export class TitleScene implements Scene {
     g.scale(1 + pulse * 0.035, 1 + pulse * 0.035);
     text(g, 'NAN GAME', 0, 0, { size: 58, color: C.ink });
     g.restore();
-    text(g, '박자에 맞춰 누르는 리듬 미니게임', W / 2, 152, {
+    text(g, '박자에 맞춰 누르는 리듬 미니게임', W / 2, 146, {
       size: 17,
       color: C.inkSoft,
       weight: 500,
@@ -146,14 +148,14 @@ export class TitleScene implements Scene {
     }
 
     // 창 위아래로 더 있으면 화살표로 알린다.
-    if (start > 0) drawMoreArrow(g, MENU_TOP - 12, -1);
-    if (start + shown < n) drawMoreArrow(g, MENU_TOP + shown * ROW_H + 12, 1);
+    if (start > 0) drawMoreArrow(g, MENU_TOP - ARROW_GAP, -1);
+    if (start + shown < n) drawMoreArrow(g, MENU_TOP + shown * ROW_H + ARROW_GAP, 1);
 
     const hint =
       this.cursor < MINIGAMES.length
         ? MINIGAMES[this.cursor].hint
         : '내 환경의 입력 지연을 재서 판정을 보정합니다';
-    text(g, hint, W / 2, 470, { size: 15, color: C.inkSoft, weight: 500 });
+    text(g, hint, W / 2, 466, { size: 15, color: C.inkSoft, weight: 500 });
     drawBeatDots(g, beat, 500);
     text(g, '↑ ↓ 로 선택 · 스페이스로 시작', W / 2, H - 20, {
       size: 14,
