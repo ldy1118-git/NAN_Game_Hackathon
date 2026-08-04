@@ -1,6 +1,6 @@
 import type { App, Scene } from '../core/App';
 import { C, W, beatPulse, clamp, easeBack, easeOut, text } from '../core/draw';
-import { CAST, drawCharacter, type CastId } from '../minigames/cast';
+import { CAST, drawCharacter, idleBlink, type CastId } from '../minigames/cast';
 import { decay } from '../minigames/beat';
 import { drawStage, GROUND_Y } from '../minigames/stage';
 import { TitleScene } from './TitleScene';
@@ -113,6 +113,9 @@ export class CastScene implements Scene {
         tilt: Math.sin((beat + i * 0.7) * Math.PI) * 0.03,
         sing: isTongue ? greet * 0.5 : greet,
         tongue: isTongue ? greet : 0,
+        blink: idleBlink(beat, i),
+        // 나오면서 한 손을 든다 — 인사로 읽힌다.
+        armR: -greet,
       });
     });
 

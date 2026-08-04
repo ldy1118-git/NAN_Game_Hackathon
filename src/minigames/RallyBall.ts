@@ -1,7 +1,7 @@
 import type { AudioEngine } from '../core/AudioEngine';
 import { C, circle, clamp, lerp, roundRect, shadowed, text } from '../core/draw';
 import type { BeatEvent, Verdict } from '../core/types';
-import { drawCharacter, type CastId } from './cast';
+import { drawCharacter, idleBlink, type CastId } from './cast';
 import { type MiniGame, type RenderInfo } from './MiniGame';
 import { decay, prevBeat } from './beat';
 import { GROUND_Y, drawStage } from './stage';
@@ -152,6 +152,9 @@ export class RallyBall implements MiniGame {
       squash: foeSwing * 0.5,
       hop: foeSwing * 6,
       sing: foeSwing * 0.7,
+      blink: idleBlink(beat, 1),
+      // 라켓은 오른쪽에 있다 — 그쪽 팔만 앞으로 뻗어 라켓을 쥔다.
+      armR: 0.5 + foeSwing * 0.4,
     });
     drawRacket(g, FOE.racketX, FOE.racketY, C.mint, -0.6 + foeSwing * 1.5);
 
@@ -169,6 +172,8 @@ export class RallyBall implements MiniGame {
       hop: youSwing * 6,
       tilt: missShake * Math.sin(beat * 40) * 0.1,
       sing: youSwing * 0.7,
+      blink: idleBlink(beat, 4),
+      armL: 0.5 + youSwing * 0.4,
     });
     drawRacket(g, YOU.racketX, YOU.racketY, C.pink, 0.6 - youSwing * 1.5);
 
