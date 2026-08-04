@@ -2,7 +2,7 @@ import type { AudioEngine } from '../core/AudioEngine';
 import { C, W, easeOut, text } from '../core/draw';
 import type { BeatEvent, Verdict } from '../core/types';
 import { shockRing } from './character';
-import { CAST, drawCharacter } from './cast';
+import { CAST, drawCharacter, idleBlink } from './cast';
 import { type MiniGame, type RenderInfo } from './MiniGame';
 import { GROUND_Y, drawStage } from './stage';
 
@@ -162,13 +162,13 @@ export class PianoRepeat implements MiniGame {
 
     for (let i = 0; i < 6; i++) {
       const s = aiSing(r.events, i, beat);
-      drawSinger(g, i, AI_FEET_Y, s, false);
+      drawSinger(g, i, AI_FEET_Y, s, false, beat);
     }
 
     for (let i = 0; i < 6; i++) {
       const s = playerSing(r.events, i, beat);
       const m = playerMissAge(r.events, i, beat);
-      drawSinger(g, i, PLAYER_FEET_Y, s, true, m);
+      drawSinger(g, i, PLAYER_FEET_Y, s, true, beat, m);
     }
   }
 }
@@ -380,6 +380,7 @@ function drawSinger(
   feetY: number,
   s: SingState,
   showLabel: boolean,
+  beat: number,
   missAmount = 0,
 ): void {
   const x = charX(i);
@@ -403,6 +404,10 @@ function drawSinger(
     hop,
     tilt: missAmount > 0 ? Math.sin(missAmount * 30) * 0.08 * missAmount : 0,
     sing: s.amount,
+    blink: missAmount > 0.5 ? missAmount : idleBlink(beat, i),
+    // 부를 때 팔을 살짝 든다. 여섯이 시차를 두고 움직여야 합창처럼 보인다.
+    armL: -s.amount * 0.35,
+    armR: -s.amount * 0.35,
   });
 
   // 소리 이름 말풍선 — 확실히 티가 나게
