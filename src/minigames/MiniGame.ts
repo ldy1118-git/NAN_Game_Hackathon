@@ -45,6 +45,13 @@ export interface MiniGame {
    * 두더지 잡기처럼 넓은 반응 창이 필요한 게임에서 사용.
    */
   readonly hitWindowMs?: { perfect: number; good: number; expire: number };
+  /**
+   * 판정 문구("완벽" 등)를 띄울 y. 생략하면 176 (화면 위쪽).
+   *
+   * 기본값은 캐릭터가 바닥 근처에 있는 게임을 전제한 자리다. 화면 위쪽을 쓰는
+   * 게임은 문구가 그림 위에 겹치므로 비어 있는 높이로 옮긴다.
+   */
+  readonly verdictY?: number;
 
   /** 채보. Runner 가 시작할 때 한 번 호출한다. */
   build(): BeatEvent[];

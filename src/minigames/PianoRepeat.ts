@@ -86,6 +86,12 @@ export class PianoRepeat implements MiniGame {
   readonly bpm = 116;
   readonly endBeat = LEAD_IN + PATTERNS.length * PHRASE_BEATS + 2;
   readonly order = 50;
+  /**
+   * 기본 자리(176)는 위 합창단(y 120~216) 한가운데라 문구가 캐릭터에 묻힌다.
+   * 합창단 위 빈 띠로 올린다. 아래쪽은 "따라 하기!" 문구와 플레이어 합창단이
+   * 차지하고 있어 비어 있는 높이가 여기뿐이다.
+   */
+  readonly verdictY = 82;
   readonly acceptedKeys = KEY_CODES;
 
   private events: BeatEvent[];
@@ -483,9 +489,10 @@ function drawSoundText(
 function drawPhraseCounter(g: CanvasRenderingContext2D, beat: number): void {
   const phraseIdx = beat < LEAD_IN ? 0 : Math.floor((beat - LEAD_IN) / PHRASE_BEATS);
   if (phraseIdx >= PATTERNS.length) return;
+  // 오른쪽 위는 PlayScene 의 콤보 자리다. 게임 제목 아래(왼쪽)로 붙인다.
   text(g, `${Math.min(phraseIdx + 1, PATTERNS.length)} / ${PATTERNS.length}`,
-    W - 26, 34, {
-      size: 15, color: C.inkSoft, align: 'right', weight: 800, alpha: 0.7,
+    22, 54, {
+      size: 15, color: C.inkSoft, align: 'left', weight: 800, alpha: 0.7,
     });
 }
 

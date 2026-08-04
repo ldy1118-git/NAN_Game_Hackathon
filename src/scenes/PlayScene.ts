@@ -6,6 +6,11 @@ import type { MiniGameEntry } from '../minigames';
 import { ResultScene } from './ResultScene';
 import { TitleScene } from './TitleScene';
 
+/** 판정 문구의 기본 높이. 게임이 `verdictY` 로 덮어쓸 수 있다. */
+const DEFAULT_VERDICT_Y = 176;
+/** 판정 문구 아래에 "조금 늦음"을 띄우는 간격. */
+const ERR_TEXT_GAP = 32;
+
 const VERDICT_COLOR: Record<Verdict, string> = {
   perfect: C.mint,
   good: C.blue,
@@ -122,9 +127,11 @@ export class PlayScene implements Scene {
 
     const t = age / 1.1;
     const rise = easeOut(t, 2) * 26;
+    // 게임이 화면 위쪽을 쓰면 기본 자리에서 그림과 겹친다. 그럴 땐 게임이 옮긴다.
+    const top = this.runner.game.verdictY ?? DEFAULT_VERDICT_Y;
     g.save();
     g.globalAlpha = 1 - t * t;
-    text(g, VERDICT_LABEL[lj.verdict], W / 2, 176 - rise, {
+    text(g, VERDICT_LABEL[lj.verdict], W / 2, top - rise, {
       size: 38 + (1 - Math.min(t * 4, 1)) * 12,
       color: VERDICT_COLOR[lj.verdict],
     });
@@ -136,7 +143,7 @@ export class PlayScene implements Scene {
       if (Math.abs(errMs) < 400) {
         g.save();
         g.globalAlpha = (1 - t) * 0.8;
-        text(g, errMs > 0 ? '조금 늦음' : '조금 빠름', W / 2, 208 - rise, {
+        text(g, errMs > 0 ? '조금 늦음' : '조금 빠름', W / 2, top + ERR_TEXT_GAP - rise, {
           size: 15,
           color: C.inkSoft,
           weight: 600,
