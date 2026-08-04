@@ -1,8 +1,8 @@
 import type { AudioEngine } from '../core/AudioEngine';
 import { C, circle, clamp, easeOut, lerp, text } from '../core/draw';
 import type { BeatEvent, Verdict } from '../core/types';
-import { drawHands, shockRing } from './character';
-import { drawCharacter, type CastId } from './cast';
+import { shockRing } from './character';
+import { drawCharacter, idleBlink, type CastId } from './cast';
 import { basicGroove, type MiniGame, type RenderInfo } from './MiniGame';
 import { decay, nextBeat, prevAndNext, windUp } from './beat';
 import { GROUND_Y, drawStage } from './stage';
@@ -36,16 +36,10 @@ const BODY_H = 150;
 /** 왼쪽이 들려주고 오른쪽이 따라 친다. */
 const BOT_ID: CastId = 'girl2';
 const PLAYER_ID: CastId = 'man1';
-/**
- * 배 높이. 손은 몸통보다 나중에 그려져 앞으로 나오되, 얼굴은 가리지 않는다.
- * 그림 캐릭터로 바뀌면서 예전(368)은 발치라 손이 아니라 굴러다니는 공으로 보였다.
- * 키 150 짜리가 GROUND_Y 에 서면 배는 대략 여기다.
- */
-const HAND_Y = 330;
+/** 두 손이 모이는 높이. 캐릭터가 손뼉칠 때 손이 오는 자리(배 앞)와 같다. */
+const HAND_Y = GROUND_Y - BODY_H * 0.3;
 /** 손뼉 직후 몸이 눌렸다 돌아오는 데 걸리는 박. */
 const CLAP_DECAY = 0.55;
-/** 캐릭터 피부색. 흰색이면 몸에서 떨어져 나온 공처럼 보인다. */
-const HAND_COLOR = '#FCE4D2';
 
 export class ClapBot implements MiniGame {
   readonly id = 'clapbot';
@@ -119,8 +113,10 @@ export class ClapBot implements MiniGame {
       hop: botSince < 0.5 ? easeOut(1 - botSince / 0.5, 2) * 8 : 0,
       // 손뼉과 함께 입도 벌어진다 — 눈을 못 감기게 된 만큼 반응을 입으로 돌린다.
       sing: decay(beat, botClap.prev, CLAP_DECAY, 3) * 0.8,
+      blink: idleBlink(beat, 0),
+      armL: clapArm(handOpen(beat, botClap)),
+      armR: clapArm(handOpen(beat, botClap)),
     });
-    drawHands(g, BOT_X, HAND_Y, handOpen(beat, botClap), HAND_COLOR);
     if (botSince < 0.55) shockRing(g, BOT_X, HAND_Y, botSince / 0.55, C.blue, 62);
 
     // --- 플레이어 ---
@@ -128,6 +124,9 @@ export class ClapBot implements MiniGame {
     const playerSince = lj ? beat - lj.atBeat : 99;
     const hitOk = lj != null && lj.verdict !== 'miss';
     const nextHit = nextBeat(r.events, 'hit', beat);
+    const playerArm = clapArm(
+      handOpen(beat, { prev: hitOk && lj ? lj.ev.beat : null, next: nextHit }),
+    );
     drawCharacter(g, {
       id: PLAYER_ID,
       x: PLAYER_X,
@@ -137,14 +136,10 @@ export class ClapBot implements MiniGame {
       hop: hitOk && playerSince < 0.5 ? easeOut(1 - playerSince / 0.5, 2) * 8 : 0,
       tilt: !hitOk && playerSince < 0.6 ? Math.sin(playerSince * 40) * 0.06 : 0,
       sing: hitOk && lj ? decay(beat, lj.atBeat, CLAP_DECAY, 3) * 0.8 : 0,
+      blink: idleBlink(beat, 3),
+      armL: playerArm,
+      armR: playerArm,
     });
-    drawHands(
-      g,
-      PLAYER_X,
-      HAND_Y,
-      handOpen(beat, { prev: hitOk && lj ? lj.ev.beat : null, next: nextHit }),
-      HAND_COLOR,
-    );
     if (hitOk && playerSince < 0.55) {
       shockRing(g, PLAYER_X, HAND_Y, playerSince / 0.55, C.pink, 62);
     }
@@ -164,6 +159,14 @@ export class ClapBot implements MiniGame {
 }
 
 // ---------------------------------------------------------------------------
+
+/**
+ * 손 벌림 정도를 캐릭터 팔 값으로 옮긴다.
+ * 1 = 두 손이 앞에서 만남(손뼉), 0 = 옆으로 내림, 음수 = 위로 치켜듦(예비동작).
+ */
+function clapArm(open: number): number {
+  return clamp(1 - open, -0.5, 1);
+}
 
 /**
  * 손 벌림 정도. 친 직후엔 붙어 있다가 벌어지고, 다음 타점 직전엔 예비동작으로

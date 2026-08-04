@@ -1,7 +1,7 @@
 import type { AudioEngine } from '../core/AudioEngine';
 import { C, W, clamp, easeOut, lerp, text } from '../core/draw';
 import type { BeatEvent, Verdict } from '../core/types';
-import { drawCharacter, type CastId } from './cast';
+import { drawCharacter, idleBlink, type CastId } from './cast';
 import { basicGroove, type MiniGame, type RenderInfo } from './MiniGame';
 import { decay, nextBeat, windUp } from './beat';
 import { GROUND_Y, drawStage } from './stage';
@@ -112,8 +112,8 @@ export class JumpRope implements MiniGame {
     drawRope(g, rope.midY, rope.alpha);
 
     // 양 옆 줄 돌리는 캐릭터
-    drawTurner(g, HOLDER_LX, rope.midY, TURNER_L);
-    drawTurner(g, HOLDER_RX, rope.midY, TURNER_R);
+    drawTurner(g, HOLDER_LX, rope.midY, TURNER_L, beat);
+    drawTurner(g, HOLDER_RX, rope.midY, TURNER_R, beat);
 
     // 플레이어
     const lj = r.lastJudge;
@@ -136,6 +136,10 @@ export class JumpRope implements MiniGame {
       tilt: missShake * Math.sin(beat * 36) * 0.1,
       // 뛸 때 입이 벌어진다 — 힘주는 느낌.
       sing: hitOk && lj ? decay(beat, lj.atBeat, 0.42, 3) * 0.9 : 0,
+      blink: idleBlink(beat, 2),
+      // 뜰수록 팔을 벌린다. 점프가 가벼워 보이는 건 대부분 팔 덕분이다.
+      armL: -clamp(jumpHop / 48, 0, 1) * 0.7,
+      armR: -clamp(jumpHop / 48, 0, 1) * 0.7,
     });
 
     if (beat < LEAD_IN - 0.5) {
@@ -223,6 +227,7 @@ function drawTurner(
   x: number,
   midY: number,
   id: CastId,
+  beat: number,
 ): void {
   const ropeRatio = clamp((ROPE_BOT - midY) / (ROPE_BOT - ROPE_TOP), 0, 1);
   drawCharacter(g, {
@@ -231,5 +236,9 @@ function drawTurner(
     y: GROUND_Y,
     h: TURNER_H,
     hop: ropeRatio * 16,
+    // 줄이 위로 갈수록 팔도 같이 올라간다. 이제 팔이 실제로 줄을 돌린다.
+    armL: -(0.45 + ropeRatio * 0.55),
+    armR: -(0.45 + ropeRatio * 0.55),
+    blink: idleBlink(beat, x),
   });
 }

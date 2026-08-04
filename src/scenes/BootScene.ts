@@ -1,13 +1,10 @@
 import type { App, Scene } from '../core/App';
 import { C, H, W, circle, text } from '../core/draw';
-import { preload } from '../core/sprites';
-import { CAST } from '../minigames/cast';
 import { CastScene } from './CastScene';
 
 /**
  * 브라우저는 사용자 제스처 없이 AudioContext 를 재생시키지 않는다.
- * 그 한 번의 클릭을 받아내기 위한 화면. 겸사겸사 캐릭터 그림도 여기서 다 받아둔다 —
- * 게임이 시작된 뒤에 로드하면 캐릭터가 한 박 늦게 나타난다.
+ * 그 한 번의 클릭을 받아내기 위한 화면.
  */
 export class BootScene implements Scene {
   private app!: App;
@@ -27,8 +24,7 @@ export class BootScene implements Scene {
   private async begin(): Promise<void> {
     if (this.starting) return;
     this.starting = true;
-    // 오디오 해제와 그림 로딩을 같이 기다린다. 둘 다 첫 프레임 전에 끝나야 한다.
-    await Promise.all([this.app.actx.resume(), preload(CAST)]);
+    await this.app.actx.resume();
     this.app.setScene(new CastScene());
   }
 
