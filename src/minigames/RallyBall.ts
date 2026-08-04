@@ -1,7 +1,7 @@
 import type { AudioEngine } from '../core/AudioEngine';
 import { C, circle, clamp, lerp, roundRect, shadowed, text } from '../core/draw';
 import type { BeatEvent, Verdict } from '../core/types';
-import { drawBody } from './character';
+import { drawCharacter, type CastId } from './cast';
 import { type MiniGame, type RenderInfo } from './MiniGame';
 import { decay, prevBeat } from './beat';
 import { GROUND_Y, drawStage } from './stage';
@@ -29,6 +29,12 @@ const PHRASES: number[][] = [
 
 const FOE = { x: 196, racketX: 262, racketY: 292 };
 const YOU = { x: 764, racketX: 698, racketY: 292 };
+/** 왼쪽이 넘기고 오른쪽이 받아친다. */
+const FOE_ID: CastId = 'girl2';
+const YOU_ID: CastId = 'man1';
+/** 전신 그림이라 예전 덩어리 캐릭터(96)보다 키를 키워야 존재감이 맞는다. */
+const CHAR_H = 138;
+
 /** 라켓을 휘두른 뒤 자세가 돌아오는 데 걸리는 박. */
 const SWING_DECAY = 0.45;
 
@@ -138,15 +144,14 @@ export class RallyBall implements MiniGame {
 
     // --- 상대 ---
     const foeSwing = decay(beat, prevBeat(r.events, 'cue', beat), SWING_DECAY);
-    drawBody(g, {
+    drawCharacter(g, {
+      id: FOE_ID,
       x: FOE.x,
       y: GROUND_Y,
-      w: 84,
-      h: 96,
-      color: C.mint,
-      look: 0.6,
+      h: CHAR_H,
       squash: foeSwing * 0.5,
       hop: foeSwing * 6,
+      sing: foeSwing * 0.7,
     });
     drawRacket(g, FOE.racketX, FOE.racketY, C.mint, -0.6 + foeSwing * 1.5);
 
@@ -155,16 +160,15 @@ export class RallyBall implements MiniGame {
     const hitOk = lj != null && lj.verdict !== 'miss';
     const youSwing = hitOk && lj ? decay(beat, lj.atBeat, SWING_DECAY) : 0;
     const missShake = lj && lj.verdict === 'miss' ? decay(beat, lj.atBeat, SWING_DECAY) : 0;
-    drawBody(g, {
+    drawCharacter(g, {
+      id: YOU_ID,
       x: YOU.x,
       y: GROUND_Y,
-      w: 84,
-      h: 96,
-      color: C.pink,
-      look: -0.6,
+      h: CHAR_H,
       squash: youSwing * 0.5,
       hop: youSwing * 6,
       tilt: missShake * Math.sin(beat * 40) * 0.1,
+      sing: youSwing * 0.7,
     });
     drawRacket(g, YOU.racketX, YOU.racketY, C.pink, 0.6 - youSwing * 1.5);
 

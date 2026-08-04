@@ -1,7 +1,7 @@
 import type { AudioEngine } from '../core/AudioEngine';
 import { C, W, clamp, easeOut, lerp, text } from '../core/draw';
 import type { BeatEvent, Verdict } from '../core/types';
-import { drawBody } from './character';
+import { drawCharacter, type CastId } from './cast';
 import { basicGroove, type MiniGame, type RenderInfo } from './MiniGame';
 import { decay, nextBeat, windUp } from './beat';
 import { GROUND_Y, drawStage } from './stage';
@@ -31,8 +31,13 @@ const LEAD_IN = 4;
 const HOLDER_LX = 148;
 const HOLDER_RX = 812;
 const PLAYER_X = W / 2;
-const BODY_W = 80;
-const BODY_H = 108;
+/** 뛰는 사람 하나, 줄 돌리는 사람 둘. */
+const PLAYER_ID: CastId = 'man1';
+const TURNER_L: CastId = 'girl2';
+const TURNER_R: CastId = 'girl3';
+const BODY_H = 150;
+/** 줄 돌리는 쪽은 조연이라 한 뼘 작게 세운다. */
+const TURNER_H = 124;
 
 /** 줄 잡는 손의 높이 기준점. 양 끝 호의 시작점이 여기에 고정된다. */
 const HAND_Y = GROUND_Y - 132;
@@ -107,8 +112,8 @@ export class JumpRope implements MiniGame {
     drawRope(g, rope.midY, rope.alpha);
 
     // 양 옆 줄 돌리는 캐릭터
-    drawTurner(g, HOLDER_LX, rope.midY, 1);
-    drawTurner(g, HOLDER_RX, rope.midY, -1);
+    drawTurner(g, HOLDER_LX, rope.midY, TURNER_L);
+    drawTurner(g, HOLDER_RX, rope.midY, TURNER_R);
 
     // 플레이어
     const lj = r.lastJudge;
@@ -121,17 +126,16 @@ export class JumpRope implements MiniGame {
     const preJump = windUp(beat, nextHitBeat, 0.32) * 9;
     const jumpHop = hitOk ? easeOut(1 - clamp(playerSince / 0.78, 0, 1), 2) * 48 : 0;
 
-    drawBody(g, {
+    drawCharacter(g, {
+      id: PLAYER_ID,
       x: PLAYER_X,
       y: GROUND_Y,
-      w: BODY_W,
       h: BODY_H,
-      color: C.pink,
       squash: hitOk && lj ? decay(beat, lj.atBeat, 0.42, 3) * 0.4 : 0,
       hop: jumpHop + preJump,
-      look: 0,
       tilt: missShake * Math.sin(beat * 36) * 0.1,
-      blink: hitOk && playerSince < 0.14 ? 1 : 0,
+      // 뛸 때 입이 벌어진다 — 힘주는 느낌.
+      sing: hitOk && lj ? decay(beat, lj.atBeat, 0.42, 3) * 0.9 : 0,
     });
 
     if (beat < LEAD_IN - 0.5) {
@@ -218,17 +222,14 @@ function drawTurner(
   g: CanvasRenderingContext2D,
   x: number,
   midY: number,
-  dir: 1 | -1,
+  id: CastId,
 ): void {
   const ropeRatio = clamp((ROPE_BOT - midY) / (ROPE_BOT - ROPE_TOP), 0, 1);
-  drawBody(g, {
+  drawCharacter(g, {
+    id,
     x,
     y: GROUND_Y,
-    w: 68,
-    h: 84,
-    color: C.mint,
-    look: dir * -0.65,
+    h: TURNER_H,
     hop: ropeRatio * 16,
-    squash: 0,
   });
 }

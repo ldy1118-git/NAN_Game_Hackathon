@@ -1,7 +1,8 @@
 import type { AudioEngine } from '../core/AudioEngine';
 import { C, circle, clamp, easeOut, lerp, text } from '../core/draw';
 import type { BeatEvent, Verdict } from '../core/types';
-import { drawBody, drawHands, shockRing } from './character';
+import { drawHands, shockRing } from './character';
+import { drawCharacter, type CastId } from './cast';
 import { basicGroove, type MiniGame, type RenderInfo } from './MiniGame';
 import { decay, nextBeat, prevAndNext, windUp } from './beat';
 import { GROUND_Y, drawStage } from './stage';
@@ -31,12 +32,20 @@ const LEAD_IN = 4;      // 그루브가 자리잡을 여유
 const PHRASE = 8;       // 콜 4박 + 리스폰스 4박
 const BOT_X = 268;
 const PLAYER_X = 700;
-const BODY_W = 104;
 const BODY_H = 150;
-/** 배 높이. 손은 몸통보다 나중에 그려져 앞으로 나오되, 얼굴은 가리지 않는다. */
-const HAND_Y = 368;
+/** 왼쪽이 들려주고 오른쪽이 따라 친다. */
+const BOT_ID: CastId = 'girl2';
+const PLAYER_ID: CastId = 'man1';
+/**
+ * 배 높이. 손은 몸통보다 나중에 그려져 앞으로 나오되, 얼굴은 가리지 않는다.
+ * 그림 캐릭터로 바뀌면서 예전(368)은 발치라 손이 아니라 굴러다니는 공으로 보였다.
+ * 키 150 짜리가 GROUND_Y 에 서면 배는 대략 여기다.
+ */
+const HAND_Y = 330;
 /** 손뼉 직후 몸이 눌렸다 돌아오는 데 걸리는 박. */
 const CLAP_DECAY = 0.55;
+/** 캐릭터 피부색. 흰색이면 몸에서 떨어져 나온 공처럼 보인다. */
+const HAND_COLOR = '#FCE4D2';
 
 export class ClapBot implements MiniGame {
   readonly id = 'clapbot';
@@ -101,18 +110,17 @@ export class ClapBot implements MiniGame {
     // --- 로봇 ---
     const botClap = prevAndNext(r.events, 'cue', beat);
     const botSince = botClap.prev === null ? 99 : beat - botClap.prev;
-    drawBody(g, {
+    drawCharacter(g, {
+      id: BOT_ID,
       x: BOT_X,
       y: GROUND_Y,
-      w: BODY_W,
       h: BODY_H,
-      color: C.blue,
       squash: decay(beat, botClap.prev, CLAP_DECAY, 2.4),
       hop: botSince < 0.5 ? easeOut(1 - botSince / 0.5, 2) * 8 : 0,
-      look: 0.5,
-      blink: botSince < 0.14 ? 1 : 0,
+      // 손뼉과 함께 입도 벌어진다 — 눈을 못 감기게 된 만큼 반응을 입으로 돌린다.
+      sing: decay(beat, botClap.prev, CLAP_DECAY, 3) * 0.8,
     });
-    drawHands(g, BOT_X, HAND_Y, handOpen(beat, botClap), C.white);
+    drawHands(g, BOT_X, HAND_Y, handOpen(beat, botClap), HAND_COLOR);
     if (botSince < 0.55) shockRing(g, BOT_X, HAND_Y, botSince / 0.55, C.blue, 62);
 
     // --- 플레이어 ---
@@ -120,24 +128,22 @@ export class ClapBot implements MiniGame {
     const playerSince = lj ? beat - lj.atBeat : 99;
     const hitOk = lj != null && lj.verdict !== 'miss';
     const nextHit = nextBeat(r.events, 'hit', beat);
-    drawBody(g, {
+    drawCharacter(g, {
+      id: PLAYER_ID,
       x: PLAYER_X,
       y: GROUND_Y,
-      w: BODY_W,
       h: BODY_H,
-      color: C.pink,
       squash: hitOk && lj ? decay(beat, lj.atBeat, CLAP_DECAY, 2.4) : 0,
       hop: hitOk && playerSince < 0.5 ? easeOut(1 - playerSince / 0.5, 2) * 8 : 0,
-      look: -0.5,
       tilt: !hitOk && playerSince < 0.6 ? Math.sin(playerSince * 40) * 0.06 : 0,
-      blink: hitOk && playerSince < 0.14 ? 1 : 0,
+      sing: hitOk && lj ? decay(beat, lj.atBeat, CLAP_DECAY, 3) * 0.8 : 0,
     });
     drawHands(
       g,
       PLAYER_X,
       HAND_Y,
       handOpen(beat, { prev: hitOk && lj ? lj.ev.beat : null, next: nextHit }),
-      C.white,
+      HAND_COLOR,
     );
     if (hitOk && playerSince < 0.55) {
       shockRing(g, PLAYER_X, HAND_Y, playerSince / 0.55, C.pink, 62);
