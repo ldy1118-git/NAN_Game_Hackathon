@@ -153,6 +153,14 @@ export class TitleScene implements Scene {
         color: sel ? C.white : C.inkSoft,
         weight: sel ? 800 : 600,
       });
+
+      // 아직 측정 전이면 타이밍 맞추기 줄에 점을 찍어둔다. 안내 문구와 짝을 이뤄
+      // "어디를 눌러야 하는지"까지 알려준다.
+      if (i === MINIGAMES.length && !this.app.hasCalibrated) {
+        g.fillStyle = sel ? C.white : C.pink;
+        circle(g, x + w - 22, y, 4 + beatPulse(beat, 4) * 2.5);
+        g.fill();
+      }
       g.restore();
     }
 
@@ -160,17 +168,47 @@ export class TitleScene implements Scene {
     if (start > 0) drawMoreArrow(g, MENU_TOP - ARROW_GAP, -1);
     if (start + shown < n) drawMoreArrow(g, MENU_TOP + shown * ROW_H + ARROW_GAP, 1);
 
-    const hint =
-      this.cursor < MINIGAMES.length
-        ? MINIGAMES[this.cursor].hint
-        : '내 환경의 입력 지연을 재서 판정을 보정합니다';
-    text(g, hint, W / 2, 466, { size: 15, color: C.inkSoft, weight: 500 });
+    // 한 번도 측정한 적이 없으면 힌트 자리를 안내로 바꾼다. 판정 등급이 통째로
+    // 갈리는 값인데, 메뉴 맨 아래 항목 하나로는 아무도 누르지 않는다.
+    if (!this.app.hasCalibrated) {
+      this.drawCalibrationNudge(g, beat);
+    } else {
+      const hint =
+        this.cursor < MINIGAMES.length
+          ? MINIGAMES[this.cursor].hint
+          : '내 환경의 입력 지연을 재서 판정을 보정합니다';
+      text(g, hint, W / 2, 466, { size: 15, color: C.inkSoft, weight: 500 });
+    }
     drawBeatDots(g, beat, 500);
-    text(g, '↑ ↓ 로 선택 · 스페이스로 시작', W / 2, H - 20, {
+    text(g, '↑ ↓ 로 선택 · 스페이스로 시작 · M 음소거 · − + 음량', W / 2, H - 20, {
       size: 14,
       color: C.inkSoft,
       weight: 500,
       alpha: 0.75,
+    });
+  }
+
+  /**
+   * 첫 실행 안내. 캘리브레이션을 한 번도 안 한 사람에게만 보인다.
+   *
+   * 입력 지연은 환경마다 20~80ms 씩 다르고 이건 판정 등급이 통째로 갈리는 크기다.
+   * 그런데 메뉴 맨 아래 항목 하나로 두면 신규 유저는 그냥 지나친다.
+   * 힌트 줄을 통째로 빌려 쓰고, 정박에 맞춰 깜빡여 눈에 걸리게 한다.
+   */
+  private drawCalibrationNudge(g: CanvasRenderingContext2D, beat: number): void {
+    const pulse = beatPulse(beat, 4);
+    const y = 466;
+
+    g.save();
+    g.globalAlpha = 0.5 + pulse * 0.5;
+    const label = '처음이신가요?';
+    text(g, label, W / 2 - 118, y, { size: 15, color: C.pink, weight: 800 });
+    g.restore();
+
+    text(g, '맨 아래 타이밍 맞추기를 먼저 (30초)', W / 2 + 42, y, {
+      size: 15,
+      color: C.inkSoft,
+      weight: 600,
     });
   }
 }

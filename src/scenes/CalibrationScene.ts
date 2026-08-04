@@ -57,8 +57,9 @@ export class CalibrationScene implements Scene {
     if (save && this.usable.length > 0) {
       this.app.saveInputOffset(median(this.usable));
     } else if (!save) {
-      // 취소하면 저장돼 있던 값을 되돌린다.
-      this.app.saveInputOffset(this.savedOffset ?? this.app.conductor.inputOffset);
+      // 취소하면 원래 값으로 되돌리되 저장하지는 않는다. 되돌리는 것까지 저장하면
+      // 한 번도 측정한 적 없는 사람이 "측정 완료"로 기록돼 첫 실행 안내가 사라진다.
+      this.app.saveInputOffset(this.savedOffset ?? this.app.conductor.inputOffset, false);
     }
     this.app.setScene(new TitleScene());
   }

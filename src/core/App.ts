@@ -1,7 +1,7 @@
 import { AudioEngine } from './AudioEngine';
 import { Conductor } from './Conductor';
 import { Input } from './Input';
-import { H, W } from './draw';
+import { C, H, W } from './draw';
 
 export interface Scene {
   enter?(app: App): void;
@@ -19,6 +19,12 @@ export interface Scene {
 }
 
 const CALIB_KEY = 'nan-game.inputOffset';
+const VOLUME_KEY = 'nan-game.volume';
+const MUTED_KEY = 'nan-game.muted';
+
+/** 음량 표시를 띄워두는 시간(초). 바뀐 직후에만 잠깐 보인다. */
+const VOLUME_HUD_SEC = 1.6;
+const VOLUME_STEP = 0.1;
 
 /**
  * 이보다 긴 프레임 간격은 "루프가 멈췄다 왔다"로 본다.
@@ -53,6 +59,8 @@ export class App {
   /** 직전 프레임의 오디오 클럭 시각. 멈춤 판정의 기준. */
   private lastCtxTime = 0;
   private scale = 1;
+  /** 음량 표시를 띄운 시각(performance.now). 연출용이라 벽시계로 충분하다. */
+  private volumeShownAt = -1e9;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -67,10 +75,33 @@ export class App {
     this.conductor = new Conductor(this.actx);
     this.conductor.inputOffset = loadOffset();
 
+    this.audio.volume = loadNumber(VOLUME_KEY, 0.9, 0, 1);
+    this.audio.isMuted = localStorage_.get(MUTED_KEY) === '1';
+
     window.addEventListener('resize', this.resize);
     // 탭 전환은 프레임 간격보다 먼저 알 수 있는 빠른 경로다.
     document.addEventListener('visibilitychange', this.onVisibility);
+    // 음량 조절은 어느 씬에 있든 통해야 하므로 씬이 아니라 여기서 받는다.
+    this.input.onUiKey((code) => this.onGlobalKey(code));
     this.resize();
+  }
+
+  private onGlobalKey(code: string): void {
+    if (code === 'KeyM') {
+      this.audio.isMuted = !this.audio.isMuted;
+      localStorage_.set(MUTED_KEY, this.audio.isMuted ? '1' : '0');
+    } else if (code === 'Minus' || code === 'Equal') {
+      // 음량을 건드리면 음소거는 자동으로 풀린다. 안 그러면 왜 소리가 안 나는지 모른다.
+      this.audio.isMuted = false;
+      localStorage_.set(MUTED_KEY, '0');
+      // 부동소수 오차가 쌓여 0.6000000000000001 같은 값이 저장되지 않도록 한 칸 단위로 맞춘다.
+      const steps = Math.round(this.audio.volume / VOLUME_STEP) + (code === 'Equal' ? 1 : -1);
+      this.audio.volume = steps * VOLUME_STEP;
+      localStorage_.set(VOLUME_KEY, this.audio.volume.toFixed(2));
+    } else {
+      return;
+    }
+    this.volumeShownAt = performance.now();
   }
 
   private onVisibility = (): void => {
@@ -78,14 +109,21 @@ export class App {
     if (document.hidden) this.scene?.onStall?.(0);
   };
 
-  /** 캘리브레이션 값(초)을 저장하고 즉시 적용. */
-  saveInputOffset(sec: number): void {
+  /**
+   * 캘리브레이션 값(초)을 적용한다.
+   *
+   * @param persist 저장까지 할지. 측정을 취소하고 원래 값으로 되돌리는 경우에는
+   *   false 를 넘긴다. 되돌리는 것까지 저장해 버리면 한 번도 측정한 적 없는
+   *   사람이 "측정 완료"로 기록되어, 첫 실행 안내가 다시는 안 뜬다.
+   */
+  saveInputOffset(sec: number, persist = true): void {
     this.conductor.inputOffset = sec;
-    try {
-      localStorage.setItem(CALIB_KEY, String(sec));
-    } catch {
-      // 시크릿 모드 등에서 실패해도 이번 세션에는 적용되므로 무시.
-    }
+    if (persist) localStorage_.set(CALIB_KEY, String(sec));
+  }
+
+  /** 캘리브레이션을 한 번이라도 마쳤는지. 첫 실행 안내를 띄울지 판단하는 데 쓴다. */
+  get hasCalibrated(): boolean {
+    return localStorage_.get(CALIB_KEY) !== null;
   }
 
   setScene(s: Scene): void {
@@ -133,19 +171,94 @@ export class App {
     this.g.save();
     this.scene.draw(this.g);
     this.g.restore();
+
+    this.g.save();
+    this.drawVolume(this.g, now);
+    this.g.restore();
   };
+
+  /**
+   * 음량 표시 — 바꾼 직후 잠깐 떴다가 사라진다.
+   * 음소거 중일 때는 계속 띄운다. 소리가 안 나는 이유를 화면에서 알 수 있어야 한다.
+   */
+  private drawVolume(g: CanvasRenderingContext2D, now: number): void {
+    const age = (now - this.volumeShownAt) / 1000;
+    const muted = this.audio.isMuted;
+    if (age > VOLUME_HUD_SEC && !muted) return;
+
+    // 마지막 0.4초 동안 사라진다. 음소거 중이면 옅게 계속 남는다.
+    const fade = age > VOLUME_HUD_SEC ? 0.55 : Math.min(1, (VOLUME_HUD_SEC - age) / 0.4);
+    const x = 26;
+    const y = H - 30;
+
+    g.globalAlpha = fade;
+    g.fillStyle = muted ? C.pink : C.inkSoft;
+
+    // 스피커 — 몸통 + 원뿔
+    g.beginPath();
+    g.rect(x, y - 5, 6, 10);
+    g.moveTo(x + 6, y);
+    g.lineTo(x + 15, y - 9);
+    g.lineTo(x + 15, y + 9);
+    g.closePath();
+    g.fill();
+
+    if (muted) {
+      g.strokeStyle = C.pink;
+      g.lineWidth = 2.5;
+      g.lineCap = 'round';
+      g.beginPath();
+      g.moveTo(x + 21, y - 6);
+      g.lineTo(x + 31, y + 6);
+      g.moveTo(x + 31, y - 6);
+      g.lineTo(x + 21, y + 6);
+      g.stroke();
+    } else {
+      // 10칸 계단 막대. 켜진 칸 수가 곧 음량이고, 바닥은 한 줄로 맞춘다.
+      const steps = Math.round(this.audio.volume / VOLUME_STEP);
+      const base = y + 9;
+      for (let i = 0; i < 10; i++) {
+        const h = 4 + i * 1.5;
+        g.fillStyle = i < steps ? C.ink : 'rgba(43, 42, 51, 0.18)';
+        g.fillRect(x + 24 + i * 8, base - h, 5, h);
+      }
+    }
+  }
 
   get viewScale(): number {
     return this.scale;
   }
 }
 
+/**
+ * localStorage 는 시크릿 모드나 저장소 차단 설정에서 접근만으로도 예외를 던진다.
+ * 저장이 안 되는 건 이번 세션을 못 쓸 이유가 아니므로 조용히 넘긴다.
+ */
+const localStorage_ = {
+  get(key: string): string | null {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  set(key: string, value: string): void {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      // 무시 — 이번 세션에는 이미 적용돼 있다.
+    }
+  },
+};
+
+function loadNumber(key: string, fallback: number, lo: number, hi: number): number {
+  const raw = localStorage_.get(key);
+  if (raw === null) return fallback;
+  const v = Number(raw);
+  return Number.isFinite(v) && v >= lo && v <= hi ? v : fallback;
+}
+
 function loadOffset(): number {
-  try {
-    const v = Number(localStorage.getItem(CALIB_KEY));
-    // 200ms 를 넘는 값은 측정 실패로 보고 버린다.
-    return Number.isFinite(v) && Math.abs(v) < 0.2 ? v : 0;
-  } catch {
-    return 0;
-  }
+  // 200ms 를 넘는 값은 측정 실패로 보고 버린다.
+  return loadNumber(CALIB_KEY, 0, -0.2, 0.2);
 }

@@ -20,7 +20,7 @@ export class AudioEngine {
     this.ctx = ctx;
 
     this.master = ctx.createGain();
-    this.master.gain.value = 0.9;
+    this.master.gain.value = this.level;
     this.master.connect(ctx.destination);
 
     // 화이트 노이즈 1초짜리를 만들어두고 타악기마다 잘라 쓴다.
@@ -35,8 +35,39 @@ export class AudioEngine {
     }
   }
 
+  /**
+   * 음량과 음소거는 나눠서 들고 있는다.
+   * 음소거를 풀었을 때 원래 크기로 정확히 돌아와야 하므로, 음소거가 음량 값을
+   * 덮어쓰면 안 된다. 실제 게인은 둘을 곱한 결과다.
+   */
+  private level = 0.9;
+  private muted = false;
+
+  get volume(): number {
+    return this.level;
+  }
+
   set volume(v: number) {
-    this.master.gain.value = v;
+    this.level = Math.max(0, Math.min(1, v));
+    this.applyGain();
+  }
+
+  get isMuted(): boolean {
+    return this.muted;
+  }
+
+  set isMuted(v: boolean) {
+    this.muted = v;
+    this.applyGain();
+  }
+
+  private applyGain(): void {
+    // 지금 울리고 있는 소리가 뚝 끊기지 않도록 아주 짧게 램프한다.
+    const t = this.ctx.currentTime;
+    const g = this.master.gain;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(g.value, t);
+    g.linearRampToValueAtTime(this.muted ? 0 : this.level, t + 0.02);
   }
 
   /**
