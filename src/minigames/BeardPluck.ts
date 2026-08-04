@@ -1,5 +1,5 @@
 import type { AudioEngine } from '../core/AudioEngine';
-import { C, W, circle, clamp, easeOut, roundRect, text } from '../core/draw';
+import { C, H, W, circle, clamp, easeOut, roundRect, text } from '../core/draw';
 import type { BeatEvent, Verdict } from '../core/types';
 import { drawCharacter, idleBlink, type CastId } from './cast';
 import { basicGroove, type MiniGame, type RenderInfo } from './MiniGame';
@@ -29,15 +29,30 @@ interface BeardNote {
 
 const LEAD_IN = 4;
 const CHAR_ID: CastId = 'man2';
-const CHAR_H = 200;
 
 /**
- * man2 기준 턱 Y 좌표 (world).
- * man2: headH=56, cy=-72(unscaled), 턱 = cy+headH/2 = -44(unscaled)
- * world Y = GROUND_Y + (-44) * (CHAR_H/100) = GROUND_Y - 88
+ * 얼굴이 화면 절반을 채우도록 키를 크게 잡는다.
+ * man2: headH=56, headW=47, cy=-72(unscaled)
+ * 턱(chin) = cy + headH/2 = -44 (unscaled)
+ *
+ * CHAR_H = 420 → scale = 4.2
+ *   headH px = 56 * 4.2 = 235px  (화면 높이 540의 43%)
+ *   headW px = 47 * 4.2 = 197px
+ *
+ * CHAR_Y 를 GROUND_Y + 44*scale 로 잡으면
+ *   턱 world Y = CHAR_Y - 44*scale = GROUND_Y  (땅선과 일치)
+ *   얼굴 중심 Y = CHAR_Y - 72*scale = GROUND_Y - 28*scale ≈ 279
+ *   얼굴 상단 Y = 얼굴중심 - 28*scale ≈ 162
  */
-const CHIN_Y = GROUND_Y - 88;
-const MAX_LEN = 90;
+const CHAR_H = 420;
+const CHAR_SCALE = CHAR_H / 100;
+const CHAR_Y = GROUND_Y + Math.round(44 * CHAR_SCALE); // 576
+
+/** 수염이 자라기 시작하는 턱 Y — 땅선과 같다. */
+const CHIN_Y = GROUND_Y; // = CHAR_Y - 44*CHAR_SCALE = 396
+
+/** 수염 최대 길이(px). */
+const MAX_LEN = 95;
 
 const PHRASES: BeardNote[][] = [
   // 1단계: 두 박 일반 수염
@@ -138,13 +153,8 @@ export class BeardPluck implements MiniGame {
 
   draw(g: CanvasRenderingContext2D, r: RenderInfo): void {
     const { beat } = r;
-    drawStage(g, beat);
-
-    // 수염 이벤트 그리기 (hit·hold)
-    for (const ev of r.events) {
-      if (ev.kind !== 'hit' && ev.kind !== 'hold') continue;
-      drawBeardEvent(g, ev, beat);
-    }
+    // 박자 점은 화면 맨 아래로 밀어서 얼굴과 겹치지 않게.
+    drawStage(g, beat, GROUND_Y, H - 22);
 
     const lj = r.lastJudge;
     const hitOk = lj != null && lj.verdict !== 'miss';
@@ -156,27 +166,32 @@ export class BeardPluck implements MiniGame {
         ? clamp((beat - activeHold.beat) / (activeHold.endBeat - activeHold.beat), 0, 1)
         : 0;
 
+    // 1. 캐릭터 먼저 — 수염이 턱 앞으로 나와야 하므로 캐릭터가 뒤에 깔린다.
     drawCharacter(g, {
       id: CHAR_ID,
       x: W / 2,
-      y: GROUND_Y,
+      y: CHAR_Y,
       h: CHAR_H,
       squash: hitOk && lj ? decay(beat, lj.atBeat, 0.45, 3) * 0.3 : 0,
       tilt: isMiss ? decay(beat, lj!.atBeat, 0.55) * Math.sin(beat * 30) * 0.08 : 0,
-      // hold 중이거나 성공 직후 입이 벌어진다
       sing: activeHold
         ? holdP * 0.65
         : hitOk && lj
           ? decay(beat, lj.atBeat, 0.4, 3) * 0.7
           : 0,
       blink: idleBlink(beat, 2),
-      // hold 중 팔이 살짝 올라간다 — 억지로 잡고 있는 느낌
       armL: activeHold ? -holdP * 0.25 : 0,
       armR: activeHold ? -holdP * 0.25 : 0,
     });
 
+    // 2. 수염 — 캐릭터 위에 그려야 턱에 붙은 것처럼 보인다.
+    for (const ev of r.events) {
+      if (ev.kind !== 'hit' && ev.kind !== 'hold') continue;
+      drawBeardEvent(g, ev, beat);
+    }
+
     if (beat < LEAD_IN - 0.5) {
-      text(g, '준비...', W / 2, 90, { size: 28, color: C.inkSoft, alpha: 0.6 });
+      text(g, '준비...', W / 2, 54, { size: 26, color: C.inkSoft, alpha: 0.65 });
     }
   }
 }
@@ -252,8 +267,12 @@ function drawBeardEvent(g: CanvasRenderingContext2D, ev: BeatEvent, beat: number
  * 수염 가닥들을 그린다.
  *
  * 일반 수염 — 아래로 약간 퍼지는 세 가닥, 끝이 둥글게 마무리
- * 꼬인 수염 — 같은 세 가닥이지만 끝에 작은 원형 고리가 달린다
+ * 꼬인 수염 — 같은 세 가닥이지만 끝에 시계방향 고리가 달린다
+ *
+ * 가닥 간격(STRAND_DX)은 큰 얼굴(CHAR_H=420)에 맞춰 넓게 설정.
  */
+const STRAND_DX = [-22, 0, 22] as const;
+
 function drawBeard(
   g: CanvasRenderingContext2D,
   isHold: boolean,
@@ -262,39 +281,35 @@ function drawBeard(
   alpha: number,
 ): void {
   const cx = W / 2;
-  const STRANDS = [-10, 0, 10] as const;
-  const curlR = Math.max(4, Math.min(7, len * 0.12));
+  const curlR = Math.max(6, Math.min(12, len * 0.15));
 
   g.save();
   g.globalAlpha = alpha;
   g.strokeStyle = '#3A2515';
-  g.lineWidth = isHold ? 4.5 : 3.5;
+  g.lineWidth = isHold ? 6 : 5;
   g.lineCap = 'round';
   g.lineJoin = 'round';
 
-  for (const dx of STRANDS) {
+  for (const dx of STRAND_DX) {
     const x = cx + dx;
 
     if (isHold) {
-      // 꼬인 수염: 살짝 구불구불한 가닥 + 끝에 고리
+      // 꼬인 수염: 살짝 구불한 몸통 + 끝에 시계방향 고리
       const curlY = topY + len;
-
-      // 가닥 몸통
       g.beginPath();
       g.moveTo(x, topY);
-      g.quadraticCurveTo(x + dx * 0.3, topY + len * 0.5, x, curlY);
+      g.quadraticCurveTo(x + dx * 0.25, topY + len * 0.5, x, curlY);
       g.stroke();
 
-      // 끝 고리 — 오른쪽으로 시계 방향 원
       g.beginPath();
       g.arc(x + curlR, curlY, curlR, Math.PI, Math.PI * 3, false);
       g.stroke();
     } else {
-      // 일반 수염: 아래로 갈수록 약간 벌어지는 직선형 가닥
-      const spread = dx * 0.45;
+      // 일반 수염: 아래로 갈수록 약간 벌어지는 가닥
+      const spread = dx * 0.42;
       g.beginPath();
       g.moveTo(x, topY);
-      g.quadraticCurveTo(x + spread * 0.3, topY + len * 0.6, x + spread, topY + len);
+      g.quadraticCurveTo(x + spread * 0.3, topY + len * 0.58, x + spread, topY + len);
       g.stroke();
     }
   }
