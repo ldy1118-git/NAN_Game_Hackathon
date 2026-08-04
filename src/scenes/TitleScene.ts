@@ -1,5 +1,6 @@
 import type { App, Scene } from '../core/App';
 import { C, H, W, beatPulse, circle, clamp, easeOut, roundRect, shadowed, text } from '../core/draw';
+import { getRecord } from '../core/records';
 import { MINIGAMES } from '../minigames';
 import { drawBeatDots } from '../minigames/stage';
 import { CalibrationScene } from './CalibrationScene';
@@ -161,6 +162,11 @@ export class TitleScene implements Scene {
         circle(g, x + w - 22, y, 4 + beatPulse(beat, 4) * 2.5);
         g.fill();
       }
+
+      // 미니게임 줄에는 지금까지의 최고 기록을 붙인다.
+      if (i < MINIGAMES.length) {
+        drawRecordBadge(g, MINIGAMES[i].id, x + w - 16, y, sel);
+      }
       g.restore();
     }
 
@@ -211,6 +217,53 @@ export class TitleScene implements Scene {
       weight: 600,
     });
   }
+}
+
+/**
+ * 메뉴 줄 오른쪽 끝의 기록 표시. 위로 갈수록 좋은 사다리다.
+ *
+ *   (없음)  아직 안 해봄
+ *   숫자    해봤음 — 최고 콤보
+ *   완벽    superb 등급을 낸 적 있음
+ *   ★       모든 노트를 완벽으로 낸 적 있음
+ *
+ * 등급 이름(RANK_LABEL)을 그대로 쓰지 않는다. "처음부터"는 결과 화면에서는
+ * 권유지만 메뉴에 붙으면 기록이 아니라 지시문으로 읽힌다.
+ */
+function drawRecordBadge(
+  g: CanvasRenderingContext2D,
+  id: string,
+  right: number,
+  y: number,
+  sel: boolean,
+): void {
+  const r = getRecord(id);
+  if (!r) return;
+
+  if (r.allPerfect) {
+    // 올 퍼펙트는 별 하나로. 글자보다 눈에 먼저 걸린다.
+    text(g, '★', right - 8, y, { size: sel ? 20 : 17, color: sel ? C.white : C.yellow });
+    return;
+  }
+
+  if (r.rank === 'superb') {
+    text(g, '완벽', right, y, {
+      size: 13,
+      color: sel ? C.white : C.mint,
+      align: 'right',
+      weight: 800,
+    });
+    return;
+  }
+
+  // 아직 등급이 낮으면 최고 콤보를 보여준다. 얼마나 더 가야 하는지가 숫자로 보인다.
+  text(g, `${r.combo}`, right, y, {
+    size: 13,
+    color: sel ? C.white : C.inkSoft,
+    align: 'right',
+    weight: 700,
+    alpha: sel ? 0.8 : 0.5,
+  });
 }
 
 /** 목록이 더 있다는 표시. dir = -1 위, 1 아래. */
