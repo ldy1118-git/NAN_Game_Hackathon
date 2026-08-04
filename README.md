@@ -1,5 +1,8 @@
 # NAN GAME
 
+**▶ [지금 플레이하기](https://nan-game-hackathon.vercel.app/)** — 설치 없이 브라우저에서 바로.
+헤드폰을 쓰고, 처음이라면 타이틀의 **타이밍 맞추기**를 한 번 돌리는 걸 권한다.
+
 리듬천국(Rhythm Heaven)식 콜 앤 리스폰스 리듬 미니게임. TypeScript + Canvas 2D, 엔진·에셋 없음.
 
 ```bash
