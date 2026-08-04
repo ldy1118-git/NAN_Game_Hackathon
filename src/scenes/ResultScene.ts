@@ -1,6 +1,7 @@
 import type { App, Scene } from '../core/App';
 import { C, H, W, circle, easeBack, easeOut, roundRect, shadowed, text } from '../core/draw';
 import { RANK_LABEL, rankOf, type JudgeStats, type Rank } from '../core/types';
+import { submit, type RecordUpdate } from '../core/records';
 import type { MiniGameEntry } from '../minigames';
 import { PlayScene } from './PlayScene';
 import { TitleScene } from './TitleScene';
@@ -24,12 +25,16 @@ export class ResultScene implements Scene {
   private rank: Rank;
   private t = 0;
   private off: (() => void) | null = null;
+  private record: RecordUpdate;
 
   constructor(entry: MiniGameEntry, stats: JudgeStats, bestCombo: number) {
     this.entry = entry;
     this.stats = stats;
     this.bestCombo = bestCombo;
     this.rank = rankOf(stats);
+    // 결과를 만드는 시점에 바로 기록한다. 여기서 나가는 경로가 여럿이라
+    // exit 에서 하면 빠지는 길이 생긴다.
+    this.record = submit(entry.id, stats, bestCombo);
   }
 
   enter(app: App): void {
@@ -101,11 +106,12 @@ export class ResultScene implements Scene {
       text(g, label, x + bw / 2, 366, { size: 14, color: C.inkSoft, weight: 600 });
     });
 
-    text(g, `최대 콤보 ${this.bestCombo} / ${this.stats.total}`, W / 2, 424, {
+    text(g, `최대 콤보 ${this.bestCombo} / ${this.stats.total}`, W / 2, 420, {
       size: 18,
       color: C.ink,
       weight: 700,
     });
+    this.drawRecord(g);
     g.restore();
 
     const blink = 0.55 + Math.sin(this.t * 4) * 0.35;
@@ -115,5 +121,57 @@ export class ResultScene implements Scene {
       weight: 600,
       alpha: blink,
     });
+  }
+
+  /**
+   * 기록 줄 — 뭔가 갱신했으면 그걸, 아니면 지금까지의 최고를 보여준다.
+   *
+   * 갱신했을 때만 알려주면 갱신 못 한 판은 비교 대상이 사라진다.
+   * "얼마나 모자랐는지"가 보여야 다시 할 마음이 든다.
+   */
+  private drawRecord(g: CanvasRenderingContext2D): void {
+    const { previous, improved, allPerfect } = this.record;
+    const y = 456;
+
+    if (allPerfect) {
+      // 올 퍼펙트는 다른 무엇보다 앞선다.
+      const pulse = 0.75 + Math.sin(this.t * 5) * 0.25;
+      text(g, '★ 올 퍼펙트 ★', W / 2, y, {
+        size: 21,
+        color: C.pink,
+        weight: 900,
+        alpha: pulse,
+      });
+      return;
+    }
+
+    const news: string[] = [];
+    if (improved.rank) news.push('등급');
+    if (improved.combo) news.push('콤보');
+    if (improved.perfect) news.push('완벽');
+
+    if (!previous) {
+      text(g, '첫 기록이 저장됐습니다', W / 2, y, { size: 16, color: C.inkSoft, weight: 600 });
+      return;
+    }
+
+    if (news.length > 0) {
+      const pulse = 0.7 + Math.sin(this.t * 5) * 0.3;
+      text(g, `신기록! ${news.join(' · ')}`, W / 2, y, {
+        size: 19,
+        color: C.pink,
+        weight: 800,
+        alpha: pulse,
+      });
+      return;
+    }
+
+    text(
+      g,
+      `최고 기록 — ${RANK_LABEL[previous.rank]} · 콤보 ${previous.combo} · 완벽 ${previous.perfect}`,
+      W / 2,
+      y,
+      { size: 15, color: C.inkSoft, weight: 600 },
+    );
   }
 }
