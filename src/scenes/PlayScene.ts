@@ -38,7 +38,10 @@ export class PlayScene implements Scene {
 
   enter(app: App): void {
     this.app = app;
-    const game = this.entry.create();
+    // 지역 변수로 받아야 kind 검사가 좁혀진다. this.entry 는 중간에 바뀔 수 있다고 본다.
+    const entry = this.entry;
+    if (entry.kind !== 'rhythm') throw new Error('PlayScene 은 리듬 게임 전용입니다');
+    const game = entry.create();
     // 리드인을 넉넉히 둬서 스케줄러가 첫 마디를 미리 채울 시간을 준다.
     app.conductor.start(game.bpm, 1.4);
     this.runner = new Runner(game, app.conductor, app.audio, app.input);
@@ -105,7 +108,7 @@ export class PlayScene implements Scene {
     if (this.runner.finished) {
       this.done = true;
       this.app.setScene(
-        new ResultScene(this.entry, this.runner.stats, this.runner.bestCombo),
+        ResultScene.fromRhythm(this.entry, this.runner.stats, this.runner.bestCombo),
       );
     }
   }

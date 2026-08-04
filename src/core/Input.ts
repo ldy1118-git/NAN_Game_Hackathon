@@ -77,6 +77,16 @@ export class Input {
     return this.ctx.currentTime - lag;
   }
 
+  /**
+   * 지금 눌려 있는 키인가.
+   *
+   * 리듬 쪽은 "언제 눌렸나"가 전부라 drain() 만 쓰지만, 자유형 미니게임은
+   * "지금 누르고 있나"(이동·차징)가 필요하다.
+   */
+  isDown(code: string): boolean {
+    return this.held.has(code);
+  }
+
   /** 이번 프레임에 들어온 입력을 가져가고 큐를 비운다. */
   drain(): Press[] {
     if (this.queue.length === 0) return [];

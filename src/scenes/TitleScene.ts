@@ -4,6 +4,7 @@ import { getRecord } from '../core/records';
 import { MINIGAMES } from '../minigames';
 import { drawBeatDots } from '../minigames/stage';
 import { CalibrationScene } from './CalibrationScene';
+import { FreePlayScene } from './FreePlayScene';
 import { PlayScene } from './PlayScene';
 
 const MENU_BPM = 112;
@@ -61,7 +62,10 @@ export class TitleScene implements Scene {
     } else if (code === 'Space' || code === 'Enter') {
       this.app.audio.good(this.app.actx.currentTime);
       if (this.cursor < MINIGAMES.length) {
-        this.app.setScene(new PlayScene(MINIGAMES[this.cursor]));
+        const entry = MINIGAMES[this.cursor];
+        this.app.setScene(
+          entry.kind === 'free' ? new FreePlayScene(entry) : new PlayScene(entry),
+        );
       } else {
         this.app.setScene(new CalibrationScene());
       }

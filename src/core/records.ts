@@ -82,11 +82,17 @@ export interface RecordUpdate {
  * 항목별로 따로 최고를 남긴다. 등급은 낮았지만 콤보는 최고인 판도 있으므로,
  * 한 판을 통째로 갈아끼우면 더 좋은 값이 사라진다.
  */
-export function submit(id: string, stats: JudgeStats, bestCombo: number): RecordUpdate {
+export function submit(
+  id: string,
+  stats: JudgeStats,
+  bestCombo: number,
+  freeRank?: Rank,
+): RecordUpdate {
   const store = read();
   const prev = getRecord(id);
-  const rank = rankOf(stats);
-  const allPerfect = stats.total > 0 && stats.perfect === stats.total;
+  // 자유형 게임은 판정 내역이 없어 rankOf 로는 등급이 안 나온다. 게임이 직접 준다.
+  const rank = freeRank ?? rankOf(stats);
+  const allPerfect = freeRank === undefined && stats.total > 0 && stats.perfect === stats.total;
 
   const improved = {
     rank: !prev || RANK_ORDER[rank] > RANK_ORDER[prev.rank],

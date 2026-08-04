@@ -1,13 +1,18 @@
 import type { MiniGame } from './MiniGame';
+import type { FreeGame } from './FreeGame';
 
-export interface MiniGameEntry {
-  id: string;
-  title: string;
-  hint: string;
-  create: () => MiniGame;
-}
+/**
+ * 메뉴에 뜨는 게임 하나.
+ *
+ * `kind` 로 두 갈래를 가른다 — 'rhythm' 은 채보와 판정 창을 쓰고,
+ * 'free' 는 박자에 매이지 않는다. 씬이 갈리므로 어느 쪽인지 알아야 한다.
+ */
+export type MiniGameEntry =
+  | { kind: 'rhythm'; id: string; title: string; hint: string; create: () => MiniGame }
+  | { kind: 'free'; id: string; title: string; hint: string; create: () => FreeGame };
 
 type MiniGameClass = new () => MiniGame;
+type FreeGameClass = new () => FreeGame;
 
 /**
  * 미니게임 등록소 — 폴더를 훑어 자동으로 모은다.
@@ -20,7 +25,7 @@ type MiniGameClass = new () => MiniGame;
  * 이 폴더에 만들면 된다. 그게 전부다.
  */
 const modules = import.meta.glob<Record<string, unknown>>(
-  ['./*.ts', '!./index.ts', '!./MiniGame.ts'],
+  ['./*.ts', '!./index.ts', '!./MiniGame.ts', '!./FreeGame.ts'],
   { eager: true },
 );
 
@@ -42,23 +47,50 @@ function isMiniGameClass(value: unknown): value is MiniGameClass {
   );
 }
 
+/** FreeGame 쪽. 판별 기준은 start/update/result — 리듬 쪽에는 없는 조합이다. */
+function isFreeGameClass(value: unknown): value is FreeGameClass {
+  if (typeof value !== 'function') return false;
+  const proto = (value as FreeGameClass).prototype as Partial<FreeGame> | undefined;
+  return (
+    !!proto &&
+    typeof proto.start === 'function' &&
+    typeof proto.update === 'function' &&
+    typeof proto.result === 'function' &&
+    typeof proto.draw === 'function'
+  );
+}
+
 function collect(): MiniGameEntry[] {
   const found: { entry: MiniGameEntry; order: number }[] = [];
 
   for (const mod of Object.values(modules)) {
     for (const exported of Object.values(mod)) {
-      if (!isMiniGameClass(exported)) continue;
-      // id·title·hint 를 읽으려면 한 번 만들어봐야 한다. 생성자는 채보를 짜는 정도라 가볍다.
-      const probe = new exported();
-      found.push({
-        order: probe.order ?? 100,
-        entry: {
-          id: probe.id,
-          title: probe.title,
-          hint: probe.hint,
-          create: () => new exported(),
-        },
-      });
+      // id·title·hint 를 읽으려면 한 번 만들어봐야 한다. 생성자는 가볍다.
+      if (isMiniGameClass(exported)) {
+        const probe = new exported();
+        found.push({
+          order: probe.order ?? 100,
+          entry: {
+            kind: 'rhythm',
+            id: probe.id,
+            title: probe.title,
+            hint: probe.hint,
+            create: () => new exported(),
+          },
+        });
+      } else if (isFreeGameClass(exported)) {
+        const probe = new exported();
+        found.push({
+          order: probe.order ?? 100,
+          entry: {
+            kind: 'free',
+            id: probe.id,
+            title: probe.title,
+            hint: probe.hint,
+            create: () => new exported(),
+          },
+        });
+      }
     }
   }
 
