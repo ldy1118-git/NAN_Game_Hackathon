@@ -111,7 +111,7 @@ git push --force-with-lease
 `scheduleCue`(신호음), `playerSound`(입력음), `draw`(그림).
 
 백지에서 시작하지 말고 **`ClapBot.ts`를 복사해서 이름만 바꿔 시작하는 게 제일 빠르다.**
-234줄짜리 동작하는 예제다. `RallyBall.ts`는 "날아오는 물체를 정박에 받아치는" 형태의 예제.
+동작하는 콜 앤 리스폰스 예제다. 여러 키를 쓰는 형태는 `PianoRepeat.ts` 를 보면 된다.
 
 없는 게 필요하면 만들어 쓰되, **다른 미니게임에도 쓸 만한 거면 `beat.ts`나
 `character.ts`에 넣고 단톡에 알리자.** 셋이 각자 같은 걸 만드는 게 제일 아깝다.

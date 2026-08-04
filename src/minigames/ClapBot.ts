@@ -10,8 +10,8 @@ import { GROUND_Y, drawStage } from './stage';
 /**
  * 따라 치기 — 리듬천국의 기본형인 콜 앤 리스폰스.
  *
- * 왼쪽 로봇이 4박짜리 패턴을 손뼉으로 들려주면, 다음 4박 동안 플레이어가 똑같이 친다.
- * 소리만으로도 칠 수 있지만, 로봇이 친 손뼉이 "메아리 점"이 되어 4박에 걸쳐
+ * 왼쪽 캐릭터가 4박짜리 패턴을 손뼉으로 들려주면, 다음 4박 동안 플레이어가 똑같이 친다.
+ * 소리만으로도 칠 수 있지만, 상대가 친 손뼉이 "메아리 점"이 되어 4박에 걸쳐
  * 플레이어 쪽으로 날아온다. 점이 손에 닿는 순간이 정확히 눌러야 하는 순간이라,
  * 귀로 기억한 박자와 눈으로 보는 위치가 같은 지점에서 만난다.
  */
@@ -44,7 +44,7 @@ const CLAP_DECAY = 0.55;
 export class ClapBot implements MiniGame {
   readonly id = 'clapbot';
   readonly title = '따라 치기';
-  readonly hint = '로봇이 친 손뼉을 그대로 따라 치세요 — 스페이스';
+  readonly hint = '앞사람이 친 손뼉을 그대로 따라 치세요 — 스페이스';
   readonly order = 10;   // 가장 기본형 — 여기서 시작
   readonly bpm = 124;
   readonly endBeat = LEAD_IN + PATTERNS.length * PHRASE + 2;
@@ -54,7 +54,7 @@ export class ClapBot implements MiniGame {
     PATTERNS.forEach((pattern, i) => {
       const start = LEAD_IN + i * PHRASE;
       for (const off of pattern) {
-        // 콜: 로봇이 친다. 이 박에서 메아리 점이 출발한다.
+        // 콜: 상대가 친다. 이 박에서 메아리 점이 출발한다.
         out.push({ beat: start + off, kind: 'cue', data: { phrase: i } });
         // 리스폰스: 정확히 4박 뒤, 점이 도착하는 순간.
         out.push({
@@ -73,7 +73,7 @@ export class ClapBot implements MiniGame {
 
   scheduleCue(_ev: BeatEvent, t: number, a: AudioEngine): void {
     a.clap(t, 1);
-    a.blip(t, 587.33, 0.4, 'triangle'); // 로봇 손뼉에 얹는 음정 — 낮은 D
+    a.blip(t, 587.33, 0.4, 'triangle'); // 상대 손뼉에 얹는 음정 — 낮은 D
   }
 
   playerSound(t: number, v: Verdict, a: AudioEngine): void {
@@ -101,7 +101,7 @@ export class ClapBot implements MiniGame {
       drawEcho(g, p);
     }
 
-    // --- 로봇 ---
+    // --- 들려주는 쪽 ---
     const botClap = prevAndNext(r.events, 'cue', beat);
     const botSince = botClap.prev === null ? 99 : beat - botClap.prev;
     drawCharacter(g, {
@@ -181,7 +181,7 @@ function handOpen(beat: number, cl: { prev: number | null; next: number | null }
   return wind > 0 ? Math.max(open, 1) * (1 + wind * 0.55) : open;
 }
 
-/** 메아리 점의 궤적. 로봇의 오른손에서 플레이어의 왼손까지. */
+/** 메아리 점의 궤적. 상대의 오른손에서 플레이어의 왼손까지. */
 const ECHO_FROM = BOT_X + 66;
 const ECHO_TO = PLAYER_X - 66;
 
@@ -190,7 +190,7 @@ function echoAt(p: number): [number, number] {
 }
 
 /**
- * 메아리 점. 로봇이 친 손뼉이 정확히 4박에 걸쳐 플레이어의 손으로 날아간다.
+ * 메아리 점. 상대가 친 손뼉이 정확히 4박에 걸쳐 플레이어의 손으로 날아간다.
  * 위치가 오직 p(=박의 함수)로만 정해지므로 프레임이 튀어도 도착 시점은 밀리지 않는다.
  */
 function drawEcho(g: CanvasRenderingContext2D, p: number): void {

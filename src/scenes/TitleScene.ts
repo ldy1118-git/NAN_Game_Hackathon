@@ -13,7 +13,10 @@ const TITLE_LOOKAHEAD = 0.08;
 /** 한 번에 보여줄 메뉴 줄 수. 미니게임이 더 늘어나면 나머지는 스크롤된다. */
 const VISIBLE_ROWS = 5;
 const ROW_H = 50;
+/** 목록이 꽉 찼을 때의 시작 높이. 적으면 아래 menuTop 이 가운데로 내린다. */
 const MENU_TOP = 176;
+/** 제목과 힌트 사이의 세로 중앙. 항목이 적을 때 목록을 여기에 맞춘다. */
+const MENU_MID = 300;
 /** 스크롤 화살표를 놓을 자리. 목록 위아래로 이만큼 띄운다. */
 const ARROW_GAP = 10;
 
@@ -125,11 +128,13 @@ export class TitleScene implements Scene {
     // 커서를 창 가운데 두되, 목록의 처음·끝에서는 더 밀지 않는다.
     const start = clamp(this.cursor - Math.floor(VISIBLE_ROWS / 2), 0, maxStart);
     const shown = Math.min(VISIBLE_ROWS, n);
+    // 항목이 적으면 위에 붙지 않고 가운데로 내려온다. 꽉 찼을 때는 MENU_TOP 그대로.
+    const menuTop = Math.max(MENU_TOP, MENU_MID - (shown * ROW_H) / 2);
 
     for (let row = 0; row < shown; row++) {
       const i = start + row;
       const sel = i === this.cursor;
-      const y = MENU_TOP + row * ROW_H + ROW_H / 2;
+      const y = menuTop + row * ROW_H + ROW_H / 2;
       const since = beat - this.movedAt;
       const pop = sel && since < 0.5 ? easeOut(1 - since / 0.5, 3) : 0;
       const w = 400 + (sel ? 26 : 0) + pop * 14;
@@ -171,8 +176,8 @@ export class TitleScene implements Scene {
     }
 
     // 창 위아래로 더 있으면 화살표로 알린다.
-    if (start > 0) drawMoreArrow(g, MENU_TOP - ARROW_GAP, -1);
-    if (start + shown < n) drawMoreArrow(g, MENU_TOP + shown * ROW_H + ARROW_GAP, 1);
+    if (start > 0) drawMoreArrow(g, menuTop - ARROW_GAP, -1);
+    if (start + shown < n) drawMoreArrow(g, menuTop + shown * ROW_H + ARROW_GAP, 1);
 
     // 한 번도 측정한 적이 없으면 힌트 자리를 안내로 바꾼다. 판정 등급이 통째로
     // 갈리는 값인데, 메뉴 맨 아래 항목 하나로는 아무도 누르지 않는다.
