@@ -18,6 +18,10 @@ import { GROUND_Y, drawStage } from './stage';
  *
  * 난이도는 링이 좁혀지는 시간(travel)으로 올린다. 3박 → 2박 → 1.5박 → 1박 연속.
  * 시작 반지름은 그대로라 시간이 짧아질수록 링이 빠르게 달려든다.
+ *
+ * 금색 한가운데에는 더 작은 "명중점"이 있다. 완벽 판정(±52ms)보다 좁은 ±29ms
+ * 안에 들어와야 닿는 자리라, 완벽 위에 한 단계를 더 얹은 셈이다. 판정 체계는
+ * core 가 관리하므로 건드리지 않고, 명중 수는 이 게임 안에서만 세어 보여준다.
  */
 
 const LEAD_IN = 4;
@@ -34,14 +38,20 @@ const PHRASES: number[][] = [
 
 const TARGET_X = 690;
 const TARGET_Y = 232;
-/** 과녁 링 반지름. 안쪽부터 금·빨강·파랑·검정·흰색. */
+/** 과녁 링 반지름. 안쪽부터 명중점·금·빨강·파랑·검정·흰색. */
+/**
+ * 금색 한가운데의 더 작은 원. 여기 꽂히는 걸 "명중"이라 부른다.
+ * 완벽 판정(±52ms)보다 더 좁은 ±29ms 안에 들어와야 닿는다 — 완벽 위의 한 단계다.
+ * 판정 자체는 core 가 관리하므로 건드리지 않고, 이 게임 안에서만 세고 보여준다.
+ */
+const BULL_R = 12;
 const GOLD_R = 26;
 const RED_R = 46;
 const BLUE_R = 68;
 const DARK_R = 88;
 const OUTER_R = 108;
 
-/** 조준 링이 출발하는 반지름. 과녁 바깥에서 시작해 정박에 GOLD_R 이 된다. */
+/** 조준 링이 출발하는 반지름. 과녁 바깥에서 시작해 정박에 BULL_R 이 된다. */
 const RING_START = 176;
 
 const ARCHER_X = 176;
@@ -55,7 +65,7 @@ const FLIGHT = 0.3;
 export class Archery implements MiniGame {
   readonly id = 'archery';
   readonly title = '양궁';
-  readonly hint = '조준 링이 과녁 한가운데에 겹치는 순간 쏘세요 — 스페이스';
+  readonly hint = '조준 링이 한가운데 주황 점에 겹치는 순간 쏘세요 — 스페이스';
   readonly order = 20;
   readonly bpm = 118;
   readonly endBeat: number;
@@ -110,7 +120,7 @@ export class Archery implements MiniGame {
     if (fast) a.hat(t, 0.9);
   }
 
-  playerSound(t: number, v: Verdict, a: AudioEngine): void {
+  playerSound(t: number, v: Verdict, a: AudioEngine, ev?: BeatEvent): void {
     if (v === 'miss') {
       a.bad(t);
       return;
@@ -120,6 +130,13 @@ export class Archery implements MiniGame {
     a.kick(t + FLIGHT * 0.2, 0.5);
     a.blip(t, v === 'perfect' ? 1318.51 : 659.25, 0.7, 'triangle');
     if (v === 'perfect') a.clap(t, 0.9);
+
+    // Runner 가 commit 후에 부르므로 ev.pressedBeat 이 이미 채워져 있다.
+    // 명중이면 화살이 꽂히는 시각에 맞춰 위로 뻗는 아르페지오를 얹는다.
+    if (ev && isBull(ev, 60 / this.bpm)) {
+      const land = t + FLIGHT * 0.2;
+      [1567.98, 2093.0].forEach((f, i) => a.blip(land + i * 0.07, f, 0.55, 'sine'));
+    }
   }
 
   draw(g: CanvasRenderingContext2D, r: RenderInfo): void {
@@ -133,6 +150,8 @@ export class Archery implements MiniGame {
     drawAimRing(g, r.events, beat);
     drawArcher(g, r, beat);
     drawFlyingArrows(g, r.events, beat, secPerBeat);
+    drawBullBurst(g, r.events, beat, secPerBeat);
+    drawBullCount(g, r.events, secPerBeat);
 
     if (beat < LEAD_IN - 0.5) {
       text(g, '준비...', W / 2, 140, { size: 28, color: C.inkSoft, alpha: 0.6 });
@@ -167,6 +186,19 @@ function landing(ev: BeatEvent, secPerBeat: number): { x: number; y: number; d: 
   return { x: TARGET_X + Math.cos(ang) * d, y: TARGET_Y + Math.sin(ang) * d, d };
 }
 
+/** 명중점에 꽂혔는지. 완벽 판정보다 더 좁다. */
+function isBull(ev: BeatEvent, secPerBeat: number): boolean {
+  if (!ev.verdict || ev.verdict === 'miss') return false;
+  return landing(ev, secPerBeat).d < BULL_R;
+}
+
+/** 지금까지의 명중 수. 이벤트에서 매번 다시 세므로 상태를 들고 있지 않아도 된다. */
+function bullCount(events: BeatEvent[], secPerBeat: number): number {
+  let n = 0;
+  for (const ev of events) if (ev.kind === 'hit' && isBull(ev, secPerBeat)) n++;
+  return n;
+}
+
 /** 과녁을 받치는 삼각대. 과녁이 공중에 떠 보이지 않게 한다. */
 function drawStand(g: CanvasRenderingContext2D): void {
   g.strokeStyle = 'rgba(43, 42, 51, 0.45)';
@@ -186,6 +218,7 @@ function drawTarget(g: CanvasRenderingContext2D, beat: number): void {
     [BLUE_R, C.blue],
     [RED_R, C.pink],
     [GOLD_R, C.yellow],
+    [BULL_R, '#FF8A3D'],
   ];
 
   // 마디 첫 박에 과녁이 아주 살짝 부푼다 — 박자를 과녁에서도 읽을 수 있게.
@@ -228,7 +261,7 @@ function drawAimRing(g: CanvasRenderingContext2D, events: BeatEvent[], beat: num
     const p = (beat - from) / travel;
     if (p < 0 || p > 1.25) continue;
 
-    const rad = lerp(RING_START, GOLD_R, Math.min(p, 1.25));
+    const rad = lerp(RING_START, BULL_R, Math.min(p, 1.25));
     const near = easeOut(clamp(p, 0, 1), 3);
     const fast = travel <= 1;
 
@@ -303,6 +336,52 @@ function drawFlyingArrows(
     const ny = lerp(BOW_Y, to.y, Math.min(p + 0.05, 1)) - Math.sin(Math.min(p + 0.05, 1) * Math.PI) * 26;
     drawArrow(g, x, y, Math.atan2(ny - y, nx - x));
   }
+}
+
+/** 명중한 순간 금빛이 터진다. 완벽보다 더 좁은 등급이라 보상도 더 커야 한다. */
+function drawBullBurst(
+  g: CanvasRenderingContext2D, events: BeatEvent[], beat: number, secPerBeat: number,
+): void {
+  for (const ev of events) {
+    if (ev.kind !== 'hit' || !isBull(ev, secPerBeat)) continue;
+    const at = (ev.pressedBeat ?? ev.beat) + FLIGHT;
+    const age = beat - at;
+    if (age < 0 || age > 0.9) continue;
+    const t = age / 0.9;
+
+    g.save();
+    // 퍼져나가는 금빛 링
+    g.globalAlpha = (1 - t) * 0.9;
+    g.strokeStyle = '#FFB03A';
+    g.lineWidth = 7 * (1 - t) + 2;
+    circle(g, TARGET_X, TARGET_Y, BULL_R + 90 * easeOut(t, 2));
+    g.stroke();
+    // 사방으로 튀는 반짝임
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + 0.3;
+      const d = BULL_R + 70 * easeOut(t, 2);
+      g.fillStyle = i % 2 ? C.yellow : '#FF8A3D';
+      circle(g, TARGET_X + Math.cos(a) * d, TARGET_Y + Math.sin(a) * d, 5 * (1 - t));
+      g.fill();
+    }
+    g.globalAlpha = 1 - t * t;
+    text(g, '명중!', TARGET_X, TARGET_Y - OUTER_R - 24 - easeOut(t, 2) * 18, {
+      size: 30 + (1 - Math.min(t * 4, 1)) * 12,
+      color: '#FF8A3D',
+    });
+    g.restore();
+  }
+}
+
+/** 지금까지 명중 몇 번. 오른쪽 위는 PlayScene 의 콤보 자리라 제목 아래에 붙인다. */
+function drawBullCount(
+  g: CanvasRenderingContext2D, events: BeatEvent[], secPerBeat: number,
+): void {
+  const n = bullCount(events, secPerBeat);
+  if (n === 0) return;
+  text(g, `명중 ${n}`, 22, 54, {
+    size: 15, color: '#FF8A3D', align: 'left', weight: 800, alpha: 0.9,
+  });
 }
 
 function drawArrow(g: CanvasRenderingContext2D, x: number, y: number, ang: number): void {
