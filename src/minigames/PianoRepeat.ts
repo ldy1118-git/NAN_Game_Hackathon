@@ -1,7 +1,8 @@
 import type { AudioEngine } from '../core/AudioEngine';
 import { C, W, easeOut, text } from '../core/draw';
 import type { BeatEvent, Verdict } from '../core/types';
-import { drawBody, shockRing } from './character';
+import { shockRing } from './character';
+import { CAST, drawCharacter } from './cast';
 import { type MiniGame, type RenderInfo } from './MiniGame';
 import { GROUND_Y, drawStage } from './stage';
 
@@ -33,7 +34,6 @@ const CHAR_COLORS = [
   '#FF9B7A',  // P — coral
 ] as const;
 
-const CHAR_W = 82;
 const CHAR_H = 96;
 const AI_FEET_Y = 216;
 const PLAYER_FEET_Y = 458;
@@ -392,25 +392,18 @@ function drawSinger(
     shockRing(g, x, feetY - CHAR_H * 0.55, t, s.ringColor, 70);
   }
 
-  // 몸통 — squash 는 몸이 살짝 움직이는 정도로만 (입은 아래서 크게 덧그림)
-  drawBody(g, {
+  // 여섯 명이 각자 다른 얼굴로 선다. i 는 키(Q~P) 순서라 캐릭터도 항상 같은 자리다.
+  // 입은 cast.ts 가 캐릭터마다 다른 입 앵커에 맞춰 덧그린다 — 여기서 좌표를 잡지 않는다.
+  drawCharacter(g, {
+    id: CAST[i],
     x,
     y: feetY,
-    w: CHAR_W,
     h: CHAR_H,
-    color,
     squash: s.amount * 0.15,
     hop,
-    blink: missAmount > 0.5 ? missAmount : 0,
     tilt: missAmount > 0 ? Math.sin(missAmount * 30) * 0.08 * missAmount : 0,
+    sing: s.amount,
   });
-
-  // 크게 벌어진 입 — drawBody 의 작은 곡선 위에 덮어 그림
-  if (s.amount > 0.05) {
-    const mouthCX = x;
-    const mouthCY = feetY - hop - CHAR_H * 0.5 + 6;
-    drawOpenMouth(g, mouthCX, mouthCY, s.amount);
-  }
 
   // 소리 이름 말풍선 — 확실히 티가 나게
   if (s.amount > 0) {
@@ -425,36 +418,6 @@ function drawSinger(
       alpha: 0.55 + s.amount * 0.45,
     });
   }
-}
-
-/** 캐릭터가 부를 때 확 벌어지는 O 모양 입. drawBody 의 곡선 mouth 를 덮는다. */
-function drawOpenMouth(
-  g: CanvasRenderingContext2D,
-  cx: number,
-  cy: number,
-  amount: number,
-): void {
-  const w = 8 + amount * 22;
-  const h = 6 + amount * 24;
-  g.save();
-  // 바깥 (검은 입 안쪽)
-  g.fillStyle = C.ink;
-  g.beginPath();
-  g.ellipse(cx, cy, w / 2, h / 2, 0, 0, Math.PI * 2);
-  g.fill();
-  // 혀 색 (붉은 빛)
-  if (amount > 0.35) {
-    g.fillStyle = 'rgba(255, 93, 126, 0.7)';
-    g.beginPath();
-    g.ellipse(cx, cy + h * 0.15, w / 3, h / 4, 0, 0, Math.PI * 2);
-    g.fill();
-  }
-  // 살짝 하이라이트
-  g.fillStyle = 'rgba(255, 255, 255, 0.25)';
-  g.beginPath();
-  g.ellipse(cx - w * 0.15, cy - h * 0.2, w * 0.12, h * 0.12, 0, 0, Math.PI * 2);
-  g.fill();
-  g.restore();
 }
 
 /** 소리 이름을 캐릭터 위로 띄운다. 등장 순간이 커졌다가 살짝 흔들며 위로 올라감. */

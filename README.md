@@ -123,18 +123,45 @@ src/
     App.ts          캔버스·씬 관리·루프
     draw.ts         논리 해상도(960x540), 색, beatPulse 같은 이징
     types.ts        판정 창, 등급 산정
+    sprites.ts      이미지 로더 (BootScene 에서 전부 미리 받는다)
   minigames/
     MiniGame.ts     미니게임이 지켜야 할 계약
     ClapBot.ts      따라 치기
     RallyBall.ts    튕겨내기
     JumpRope.ts     줄넘기
     ChargeBot.ts    충전하기 (hold 노트 예제)
+    PianoRepeat.ts  6인 합창
     beat.ts         공통 박자 유틸 (감쇠·예비동작·이벤트 조회)
-    character.ts    캐릭터·손·충격파 그리기
+    cast.ts         그림 캐릭터 6인 — 스프라이트 + 입 덧그리기
+    character.ts    도형 캐릭터·손·충격파 그리기
     stage.ts        바닥·박자 점·배경 플래시
     index.ts        등록소 (폴더를 훑어 자동 등록)
-  scenes/           Boot → Title → (Calibration | Play → Result)
+  scenes/           Boot → Cast → Title → (Calibration | Play → Result)
+images/             캐릭터 원본 그림 (손 안 댄 것)
+public/characters/  배경 제거·크기 통일된 결과물. 게임은 이쪽만 읽는다
+tools/              에셋 빌드 스크립트
 ```
+
+## 캐릭터
+
+화면에 서 있는 여섯 명은 그림 파일이고, **입만 코드로 얹는다**(`minigames/cast.ts`).
+
+통짜 그림은 표정이 고정이라 "박자에 맞춰 반응한다"는 감각이 죽는다. 그렇다고 원본에서
+입을 도려내는 건 안 된다 — 이 그림체는 입이 코와 인중 선으로 이어져 있어서 자동으로
+지우면 코까지 날아간다. 대신 **덮어 그린다.** 원본 입이 작은 O 자라, 그보다 큰 입을
+불투명하게 얹으면 원본이 완전히 가려진다.
+
+그래서 `squash` `hop` `tilt` `sing`(입 벌림) `tongue`(메롱) 은 살아 있고,
+**눈 깜빡임과 시선은 못 쓴다** — 눈은 그림에 박혀 있다.
+
+원본을 새로 받았다면(예: 입 다문 버전) `images/` 를 갈아끼우고:
+
+```bash
+python3 tools/build_characters.py     # pillow, numpy, scipy 필요
+```
+
+출력된 메타데이터를 `cast.ts` 의 `META` 에 붙여넣으면 끝이다. 배경 제거·크기 통일·
+입 좌표 변환을 스크립트가 한다.
 
 ## 미니게임 추가하기
 
