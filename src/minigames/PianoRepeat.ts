@@ -3,7 +3,7 @@ import { C, W, easeOut, text } from '../core/draw';
 import type { BeatEvent, Verdict } from '../core/types';
 import { drawBody, shockRing } from './character';
 import { type MiniGame, type RenderInfo } from './MiniGame';
-import { drawBeatDots, drawStage } from './stage';
+import { GROUND_Y, drawStage } from './stage';
 
 /**
  * 노래 따라 부르기 — 콜 앤 리스폰스.
@@ -85,7 +85,7 @@ export class PianoRepeat implements MiniGame {
   readonly hint = '위 합창단이 낸 소리를 그대로 따라 내세요 — Q W E · I O P';
   readonly bpm = 116;
   readonly endBeat = LEAD_IN + PATTERNS.length * PHRASE_BEATS + 2;
-  readonly order = 40;
+  readonly order = 50;
   readonly acceptedKeys = KEY_CODES;
 
   private events: BeatEvent[];
@@ -148,7 +148,8 @@ export class PianoRepeat implements MiniGame {
 
   draw(g: CanvasRenderingContext2D, r: RenderInfo): void {
     const { beat } = r;
-    drawStage(g, beat);
+    // 기본 위치(490)는 아래 합창단의 키 라벨(480)과 겹친다. 그 밑으로 내린다.
+    drawStage(g, beat, GROUND_Y, 514);
     drawPhraseCounter(g, beat);
     drawPhaseLabel(g, beat);
     drawGroundLines(g);
@@ -163,8 +164,6 @@ export class PianoRepeat implements MiniGame {
       const m = playerMissAge(r.events, i, beat);
       drawSinger(g, i, PLAYER_FEET_Y, s, true, m);
     }
-
-    drawBeatDots(g, beat, 514);
   }
 }
 

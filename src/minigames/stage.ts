@@ -1,9 +1,21 @@
 import { C, H, W, beatPulse, circle } from '../core/draw';
 
 export const GROUND_Y = 396;
+/** 박자 점의 기본 높이. */
+export const BEAT_DOTS_Y = 490;
 
-/** 바닥과 배경 플래시 — 미니게임들이 공유하는 무대. */
-export function drawStage(g: CanvasRenderingContext2D, beat: number, groundY = GROUND_Y): void {
+/**
+ * 바닥과 배경 플래시 — 미니게임들이 공유하는 무대.
+ *
+ * `beatDotsY` 로 박자 점의 높이를 옮길 수 있다. 화면 아래쪽에 자기 UI를 두는
+ * 게임은 기본 위치(490)와 겹치므로 여기서 비켜주면 된다.
+ */
+export function drawStage(
+  g: CanvasRenderingContext2D,
+  beat: number,
+  groundY = GROUND_Y,
+  beatDotsY = BEAT_DOTS_Y,
+): void {
   g.fillStyle = C.bg;
   g.fillRect(0, 0, W, H);
 
@@ -24,11 +36,11 @@ export function drawStage(g: CanvasRenderingContext2D, beat: number, groundY = G
   g.lineTo(W, groundY);
   g.stroke();
 
-  drawBeatDots(g, beat);
+  drawBeatDots(g, beat, beatDotsY);
 }
 
 /** 마디 안 4박을 점으로 표시. 지금이 몇 박인지 눈으로 잡아준다. */
-export function drawBeatDots(g: CanvasRenderingContext2D, beat: number, y = 490): void {
+export function drawBeatDots(g: CanvasRenderingContext2D, beat: number, y = BEAT_DOTS_Y): void {
   const inBar = ((Math.floor(beat) % 4) + 4) % 4;
   const pulse = beatPulse(beat, 5);
   for (let i = 0; i < 4; i++) {
