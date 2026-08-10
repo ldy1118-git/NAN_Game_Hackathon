@@ -78,8 +78,16 @@ export class Runner {
    *      울려버리므로, 표시를 지워 재개할 때 다시 걸리게 한다.
    */
   interrupt(): void {
+    const held = this.activeHold;
     this.activeHold = null;
     this.holdStartVerdict = 'perfect';
+
+    if (held) {
+      // holding 을 지우지 않으면 재개 후에도 게이지가 계속 차오르는 것처럼 보이고,
+      // 무엇보다 누르는 동안 이어지던 소리가 영영 꺼지지 않는다.
+      held.holding = false;
+      this.game.holdCancel?.(held, this.audio.ctx.currentTime, this.audio);
+    }
 
     const beat = this.cond.beat;
     // 지금 박에 걸린 스텝은 이미 예약돼 울렸다고 보고 다음 것부터 다시 건다.
@@ -214,6 +222,9 @@ export class Runner {
         // 누르긴 했는데 뗄 시점을 한참 넘겼다
         ev.holding = false;
         this.activeHold = null;
+        // 뗀 박을 채워둬야 미니게임이 "여기까지 넘쳤다"를 그릴 수 있다.
+        // 비워 두면 게이지가 0으로 튀고 실패 표시도 뜨지 않는다.
+        ev.releasedBeat = ev.endBeat + expireBeats;
         this.commit(ev, 'miss', ev.endBeat + expireBeats);
         this.audio.bad(this.audio.ctx.currentTime);
         this.game.holdEnd?.(ev, this.audio.ctx.currentTime, 'miss', this.audio);

@@ -1,5 +1,6 @@
 import type { App, Scene } from '../core/App';
 import { C, W, beatPulse, clamp, easeBack, easeOut, text } from '../core/draw';
+import { drawLogo } from '../core/logo';
 import { CAST, drawCharacter, idleBlink, type CastId } from '../minigames/cast';
 import { decay } from '../minigames/beat';
 import { drawStage, GROUND_Y } from '../minigames/stage';
@@ -77,7 +78,7 @@ export class CastScene implements Scene {
     g.save();
     g.translate(W / 2, 92);
     g.scale(1 + pulse * 0.03, 1 + pulse * 0.03);
-    text(g, 'NAN GAME', 0, 0, { size: 52, color: C.ink });
+    drawLogo(g, 0, 0, 48);
     g.restore();
     text(g, '여섯 명을 소개합니다', W / 2, 134, {
       size: 17,

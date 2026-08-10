@@ -1,9 +1,13 @@
 import type { App, Scene } from '../core/App';
 import { C, H, W, clamp, easeOut, text } from '../core/draw';
+import { Fx } from '../core/fx';
+import { DIFFICULTY_LABEL, type Difficulty } from '../core/difficulty';
 import type { FreeGame, FreeInput } from '../minigames/FreeGame';
 import type { MiniGameEntry } from '../minigames';
+import { DifficultyScene } from './DifficultyScene';
+import { fromEntry } from './playable';
 import { ResultScene } from './ResultScene';
-import { TitleScene } from './TitleScene';
+import type { RoundHost } from './round';
 
 /** 재개할 때 세어주는 시간(초). 리듬 쪽과 달리 박자가 없으므로 그냥 초로 센다. */
 const RESUME_SEC = 2.4;
@@ -24,6 +28,10 @@ type Phase = 'playing' | 'paused' | 'resuming';
 export class FreePlayScene implements Scene {
   private app!: App;
   private entry: MiniGameEntry;
+  private difficulty: Difficulty;
+  private seed: number;
+  /** 종합게임이 감싸고 있으면 결과·나가기를 그쪽에 넘긴다. */
+  private host: RoundHost | null;
   private game!: FreeGame;
   private off: (() => void) | null = null;
   private done = false;
@@ -33,16 +41,31 @@ export class FreePlayScene implements Scene {
   private elapsed = 0;
   /** 이번 프레임에 새로 눌린 키. update 시작에 채우고 끝나면 비운다. */
   private freshKeys = new Set<string>();
+  /**
+   * 장식 효과.
+   *
+   * 자유형은 판정이 없어서 리듬 쪽처럼 등급을 볼 수 없다. 대신 게임이
+   * `hit()` 을 불러 "지금 뭔가 세게 일어났다"를 알려주면 그때 터뜨린다.
+   */
+  private fx = new Fx();
 
-  constructor(entry: MiniGameEntry) {
+  constructor(
+    entry: MiniGameEntry,
+    difficulty: Difficulty,
+    seed: number,
+    host: RoundHost | null = null,
+  ) {
     this.entry = entry;
+    this.difficulty = difficulty;
+    this.seed = seed;
+    this.host = host;
   }
 
   enter(app: App): void {
     this.app = app;
     const entry = this.entry;
     if (entry.kind !== 'free') throw new Error('FreePlayScene 은 자유형 게임 전용입니다');
-    this.game = entry.create();
+    this.game = entry.create(this.difficulty, this.seed);
     this.game.start(app.audio);
     this.off = app.input.onUiKey((code) => this.onKey(code));
   }
@@ -57,7 +80,10 @@ export class FreePlayScene implements Scene {
       if (code === 'Escape') this.pause();
       return;
     }
-    if (code === 'Escape') this.app.setScene(new TitleScene());
+    if (code === 'Escape') {
+      if (this.host) this.host.quit();
+      else this.app.setScene(new DifficultyScene(fromEntry(this.entry)));
+    }
     else if (code === 'Space' || code === 'Enter') {
       this.resumeLeft = RESUME_SEC;
       this.phase = 'resuming';
@@ -103,21 +129,33 @@ export class FreePlayScene implements Scene {
 
     this.elapsed += dt;
     this.game.update(dt, this.elapsed, this.input, this.app.audio);
+    this.fx.update(dt);
 
     const timeUp = this.game.duration > 0 && this.elapsed >= this.game.duration;
     if (timeUp || this.game.done) {
       this.done = true;
-      this.app.setScene(ResultScene.fromFree(this.entry, this.game.result()));
+      const r = this.game.result();
+      if (this.host) {
+        this.host.done({ entry: this.entry, rank: r.rank, headline: r.headline, value: r.score });
+      } else {
+        this.app.setScene(ResultScene.fromFree(this.entry, this.difficulty, r));
+      }
     }
   }
 
   private input: FreeInput = {
     pressed: (code) => this.freshKeys.has(code),
     down: (code) => this.app.input.isDown(code),
+    burst: (x, y, colors, o) => this.fx.burst(x, y, colors, o),
+    shake: (amount) => this.fx.shake(amount),
   };
 
   draw(g: CanvasRenderingContext2D): void {
+    g.save();
+    g.translate(this.fx.shakeX, this.fx.shakeY);
     this.game.draw(g, this.elapsed);
+    this.fx.draw(g);
+    g.restore();
     this.drawHud(g);
     if (this.phase !== 'playing') this.drawOverlay(g);
   }
@@ -144,7 +182,7 @@ export class FreePlayScene implements Scene {
       }
     }
 
-    text(g, this.entry.title, 22, 30, {
+    text(g, `${this.entry.title} · ${this.host?.label ?? DIFFICULTY_LABEL[this.difficulty]}`, 22, 30, {
       size: 17,
       color: C.inkSoft,
       align: 'left',
@@ -167,8 +205,11 @@ export class FreePlayScene implements Scene {
       return;
     }
 
-    text(g, '일시정지', W / 2, H / 2 - 34, { size: 46, color: C.ink });
-    text(g, '스페이스로 이어서 · Esc 로 나가기', W / 2, H / 2 + 24, {
+    text(g, '일시정지', W / 2, H / 2 - 40, { size: 46, color: C.ink });
+    text(g, `${this.entry.title} · ${DIFFICULTY_LABEL[this.difficulty]}`,
+      W / 2, H / 2 - 6, { size: 15, color: C.inkSoft, weight: 600, alpha: 0.8 });
+    text(g, this.host ? '스페이스로 이어서 · Esc 로 도전 그만두기'
+                      : '스페이스로 이어서 · Esc 로 나가기', W / 2, H / 2 + 24, {
       size: 18,
       color: C.inkSoft,
       weight: 600,

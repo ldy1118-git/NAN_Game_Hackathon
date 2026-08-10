@@ -6,6 +6,11 @@ import { rankOf, type JudgeStats, type Rank } from './types';
  * 기록이 없으면 한 번 해보고 끝나기 쉽다. "지난번보다 잘했나"를 볼 수 있어야
  * 다시 할 이유가 생긴다. 서버가 없으므로 localStorage 에 JSON 한 덩어리로 둔다.
  *
+ * 여기서 `id` 는 게임 id 가 아니라 **저장 키**다. 난이도가 생긴 뒤로는
+ * `core/difficulty.ts` 의 `recordKey(id, difficulty)` 가 만든 `"dodgerain#hard"`
+ * 꼴이 들어온다. 이 파일은 키의 생김새에 관심이 없고, 그래서 난이도를 셋에서
+ * 넷으로 늘리거나 이름을 바꿔도 저장 로직은 그대로 둘 수 있다.
+ *
  * 이름을 GameRecord 로 둔 이유는 TypeScript 내장 유틸리티 타입 Record<K, V> 와
  * 겹치지 않게 하기 위해서다. Record 로 두면 이 파일 안의 Record<Rank, number> 가
  * 조용히 이 인터페이스를 가리킨다.

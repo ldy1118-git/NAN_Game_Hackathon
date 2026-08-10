@@ -1,3 +1,4 @@
+import type { Difficulty } from '../core/difficulty';
 import type { MiniGame } from './MiniGame';
 import type { FreeGame } from './FreeGame';
 
@@ -6,13 +7,28 @@ import type { FreeGame } from './FreeGame';
  *
  * `kind` 로 두 갈래를 가른다 — 'rhythm' 은 채보와 판정 창을 쓰고,
  * 'free' 는 박자에 매이지 않는다. 씬이 갈리므로 어느 쪽인지 알아야 한다.
+ *
+ * `create` 가 (difficulty, seed) 를 받는다는 점이 중요하다. 목록은 게임 열 개지만
+ * 실제로 만들 수 있는 판은 난이도 셋 × 씨앗 무한이다.
  */
 export type MiniGameEntry =
-  | { kind: 'rhythm'; id: string; title: string; hint: string; create: () => MiniGame }
-  | { kind: 'free'; id: string; title: string; hint: string; create: () => FreeGame };
+  | {
+      kind: 'rhythm';
+      id: string;
+      title: string;
+      hint: string;
+      create: (difficulty: Difficulty, seed: number) => MiniGame;
+    }
+  | {
+      kind: 'free';
+      id: string;
+      title: string;
+      hint: string;
+      create: (difficulty: Difficulty, seed: number) => FreeGame;
+    };
 
-type MiniGameClass = new () => MiniGame;
-type FreeGameClass = new () => FreeGame;
+type MiniGameClass = new (difficulty: Difficulty, seed: number) => MiniGame;
+type FreeGameClass = new (difficulty: Difficulty, seed: number) => FreeGame;
 
 /**
  * 미니게임 등록소 — 폴더를 훑어 자동으로 모은다.
@@ -25,7 +41,7 @@ type FreeGameClass = new () => FreeGame;
  * 이 폴더에 만들면 된다. 그게 전부다.
  */
 const modules = import.meta.glob<Record<string, unknown>>(
-  ['./*.ts', '!./index.ts', '!./MiniGame.ts', '!./FreeGame.ts'],
+  ['./*.ts', '!./index.ts', '!./MiniGame.ts', '!./FreeGame.ts', '!./howto.ts'],
   { eager: true },
 );
 
@@ -33,7 +49,7 @@ const modules = import.meta.glob<Record<string, unknown>>(
  * MiniGame 을 구현한 클래스인지 판별한다.
  *
  * 인터페이스는 런타임에 사라지므로 instanceof 로는 못 가른다. 대신 프로토타입에
- * 필수 메서드가 있는지 본다 — beat.ts / character.ts 같은 헬퍼 모듈은
+ * 필수 메서드가 있는지 본다 — beat.ts / cast.ts 같은 헬퍼 모듈은
  * 함수만 export 하므로 여기서 걸러진다.
  */
 function isMiniGameClass(value: unknown): value is MiniGameClass {
@@ -60,6 +76,10 @@ function isFreeGameClass(value: unknown): value is FreeGameClass {
   );
 }
 
+/** 목록을 읽기 위한 한 번짜리 인스턴스. 난이도·씨앗은 아무 값이어도 된다. */
+const PROBE_DIFFICULTY: Difficulty = 'easy';
+const PROBE_SEED = 1;
+
 function collect(): MiniGameEntry[] {
   const found: { entry: MiniGameEntry; order: number }[] = [];
 
@@ -67,7 +87,7 @@ function collect(): MiniGameEntry[] {
     for (const exported of Object.values(mod)) {
       // id·title·hint 를 읽으려면 한 번 만들어봐야 한다. 생성자는 가볍다.
       if (isMiniGameClass(exported)) {
-        const probe = new exported();
+        const probe = new exported(PROBE_DIFFICULTY, PROBE_SEED);
         found.push({
           order: probe.order ?? 100,
           entry: {
@@ -75,11 +95,11 @@ function collect(): MiniGameEntry[] {
             id: probe.id,
             title: probe.title,
             hint: probe.hint,
-            create: () => new exported(),
+            create: (difficulty, seed) => new exported(difficulty, seed),
           },
         });
       } else if (isFreeGameClass(exported)) {
-        const probe = new exported();
+        const probe = new exported(PROBE_DIFFICULTY, PROBE_SEED);
         found.push({
           order: probe.order ?? 100,
           entry: {
@@ -87,7 +107,7 @@ function collect(): MiniGameEntry[] {
             id: probe.id,
             title: probe.title,
             hint: probe.hint,
-            create: () => new exported(),
+            create: (difficulty, seed) => new exported(difficulty, seed),
           },
         });
       }

@@ -1,9 +1,12 @@
 import type { AudioEngine } from '../core/AudioEngine';
 import { C, circle, clamp, lerp, roundRect, shadowed, text } from '../core/draw';
+import type { Difficulty } from '../core/difficulty';
+import { makeRng } from '../core/rng';
 import type { BeatEvent, Verdict } from '../core/types';
 import { drawCharacter, idleBlink, type CastId } from './cast';
 import { type MiniGame, type RenderInfo } from './MiniGame';
-import { decay, prevBeat } from './beat';
+import { decay, layoutPhrases, makeTravelPhrases, prevBeat, type PhraseSpec } from './beat';
+import { PREVIEW_H, PREVIEW_W, type Control } from './howto';
 import { GROUND_Y, drawStage } from './stage';
 
 /**
@@ -17,15 +20,6 @@ import { GROUND_Y, drawStage } from './stage';
  */
 
 const LEAD_IN = 4;
-const PHRASES: number[][] = [
-  [2, 2, 2, 2],
-  [2, 2, 2, 2],
-  [2, 1, 1, 2],
-  [1, 1, 2, 2],
-  [2, 1, 1, 1, 1],
-  [1, 1, 2, 1, 1],
-  [1, 1, 1, 1, 2, 2],
-];
 
 const FOE = { x: 196, racketX: 262, racketY: 292 };
 const YOU = { x: 764, racketX: 698, racketY: 292 };
@@ -38,33 +32,52 @@ const CHAR_H = 138;
 /** 라켓을 휘두른 뒤 자세가 돌아오는 데 걸리는 박. */
 const SWING_DECAY = 0.45;
 
+interface Params {
+  bpm: number;
+  phrase: PhraseSpec;
+}
+
+/**
+ * 난이도별 조임.
+ *
+ * 쉬움은 느린 공만 온다. 공이 날아오는 궤적을 눈으로 좇는 것부터 익혀야
+ * 빠른 공이 왔을 때 "빠르다"는 게 정보가 된다.
+ */
+const PARAMS: Record<Difficulty, Params> = {
+  easy: {
+    bpm: 116,
+    phrase: { phrases: 5, notes: [4, 4], travels: [[2, 1]], maxRun: 0 },
+  },
+  normal: {
+    bpm: 126,
+    phrase: { phrases: 6, notes: [4, 5], travels: [[2, 2.4], [1, 1]], maxRun: 2 },
+  },
+  hard: {
+    bpm: 138,
+    phrase: { phrases: 7, notes: [5, 6], travels: [[2, 1], [1, 1.8]], maxRun: 4 },
+  },
+};
+
 export class RallyBall implements MiniGame {
   readonly id = 'rallyball';
   readonly title = '튕겨내기';
   readonly hint = '공이 라켓에 닿는 순간 스페이스 — 분홍 공은 두 배 빠릅니다';
   readonly order = 20;
-  readonly bpm = 132;
+  readonly bpm: number;
   readonly endBeat: number;
+  readonly controls: readonly Control[] = [
+    { keys: ['Space'], label: '공이 라켓에 닿는 순간' },
+  ];
+  readonly scoring = '파랑은 2박 · 분홍은 1박 뒤에 도착 · 정확할수록 완벽';
 
   private events: BeatEvent[];
 
-  constructor() {
-    const out: BeatEvent[] = [];
-    let t = LEAD_IN;
-
-    for (const phrase of PHRASES) {
-      for (const travel of phrase) {
-        out.push({ beat: t, kind: 'cue', data: { travel } });
-        out.push({ beat: t + travel, kind: 'hit', data: { travel, from: t } });
-        t += travel;
-      }
-      // 최소 2박은 쉬되, 다음 악구가 마디 머리에서 시작하도록 4의 배수로 맞춘다.
-      const sum = phrase.reduce((a, b) => a + b, 0);
-      t += 2 + ((4 - ((sum + 2) % 4)) % 4);
-    }
-
-    this.events = out.sort((a, b) => a.beat - b.beat);
-    this.endBeat = t + 1;
+  constructor(difficulty: Difficulty, seed: number) {
+    const p = PARAMS[difficulty];
+    this.bpm = p.bpm;
+    const laid = layoutPhrases(makeTravelPhrases(makeRng(seed), p.phrase), LEAD_IN);
+    this.events = laid.events;
+    this.endBeat = laid.endBeat + 1;
   }
 
   build(): BeatEvent[] {
@@ -81,6 +94,11 @@ export class RallyBall implements MiniGame {
     const BASS = [98, 0, 0, 98, 0, 0, 87.31, 0];
     const f = BASS[inBar];
     if (f) a.bass(t, f, 0.2, 0.85);
+
+    if (inBar === 0) {
+      const bar = Math.floor(step / 8) % 2;
+      a.pad(t, bar === 0 ? [196, 246.94, 293.66] : [174.61, 220, 261.63], 1.5, 0.8);
+    }
   }
 
   scheduleCue(ev: BeatEvent, t: number, a: AudioEngine): void {
@@ -181,6 +199,54 @@ export class RallyBall implements MiniGame {
       text(g, '준비...', 480, 96, { size: 30, color: C.inkSoft, alpha: 0.6 });
     }
   }
+
+  /** 설명 그림 — 공이 날아와 라켓에 닿는 순간을 되풀이한다. */
+  preview(g: CanvasRenderingContext2D, t: number): void {
+    const gy = PREVIEW_H - 22;
+    const foeX = 92;
+    const meX = PREVIEW_W - 92;
+    const racketY = gy - 62;
+
+    const u = (t % 1.8) / 1.8;
+    const flying = u < 0.72;
+    const p = clamp(u / 0.72, 0, 1);
+    const swing = u >= 0.72 ? 1 - (u - 0.72) / 0.28 : 0;
+
+    drawCharacter(g, { id: FOE_ID, x: foeX, y: gy, h: 82, armR: 0.6 });
+    drawCharacter(g, {
+      id: YOU_ID, x: meX, y: gy, h: 82,
+      armL: 0.5 + swing * 0.4, squash: swing * 0.4, hop: swing * 5,
+    });
+
+    // 도착 링 — 실제 게임과 같은 신호다.
+    if (flying) {
+      g.save();
+      g.globalAlpha = p * 0.8;
+      g.strokeStyle = C.blue;
+      g.lineWidth = 3;
+      circle(g, meX - 42, racketY, 16 + (1 - p) * 60);
+      g.stroke();
+      g.restore();
+
+      const x = lerp(foeX + 42, meX - 42, p);
+      const y = racketY - Math.sin(p * Math.PI) * 58;
+      g.fillStyle = C.blue;
+      circle(g, x, y, 11);
+      g.fill();
+      g.strokeStyle = C.ink;
+      g.lineWidth = 2.5;
+      g.stroke();
+    }
+
+    drawRacket(g, meX - 42, racketY, C.pink, 0.6 - swing * 1.5);
+
+    if (swing > 0) {
+      g.save();
+      g.globalAlpha = swing;
+      text(g, '지금!', meX - 42, racketY - 52, { size: 20, color: C.pink, weight: 900 });
+      g.restore();
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -202,13 +268,15 @@ function drawBall(g: CanvasRenderingContext2D, p: number, travel: number, back: 
   ];
 
   g.save();
-  if (back) g.globalAlpha = 0.45 * (1 - p);
+  const base = back ? 0.45 * (1 - p) : 1;
 
   // 잔상 — 빠른 공일수록 길게 남는다.
+  // 알파는 매번 새로 정한다. 곱해서 누적하면 먼저 그리는 먼 잔상이 가장 진하고
+  // 공에 붙은 잔상이 가장 흐려져, 꼬리가 진행 방향과 반대로 뻗어 보인다.
   const tail = fast ? 5 : 3;
   for (let i = tail; i >= 1; i--) {
     const [tx, ty] = at(clamp(p - i * 0.022, 0, 1));
-    g.globalAlpha *= 0.72;
+    g.globalAlpha = base * (1 - i / (tail + 1)) * 0.7;
     g.fillStyle = fast ? C.pink : C.blue;
     circle(g, tx, ty, 13 - i * 1.4);
     g.fill();

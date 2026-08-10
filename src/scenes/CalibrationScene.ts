@@ -1,4 +1,5 @@
 import type { App, Scene } from '../core/App';
+import { drawBackdrop } from '../minigames/stage';
 import { C, H, W, beatPulse, circle, clamp, roundRect, shadowed, text } from '../core/draw';
 import { TitleScene } from './TitleScene';
 
@@ -100,8 +101,7 @@ export class CalibrationScene implements Scene {
     const beat = this.app.conductor.beat;
     const pulse = beatPulse(beat, 6);
 
-    g.fillStyle = C.bg;
-    g.fillRect(0, 0, W, H);
+    drawBackdrop(g, beat);
 
     text(g, '타이밍 맞추기', W / 2, 74, { size: 34, color: C.ink });
     text(g, '클릭 소리에 맞춰 스페이스를 계속 치세요', W / 2, 112, {

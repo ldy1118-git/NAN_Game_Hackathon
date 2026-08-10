@@ -1,6 +1,7 @@
 import type { AudioEngine } from '../core/AudioEngine';
 import type { BeatEvent, JudgeStats, Verdict } from '../core/types';
 import type { LastJudge } from '../core/Runner';
+import type { Control } from './howto';
 
 /** 미니게임이 화면을 그릴 때 받는 정보. 전부 읽기 전용으로 다룬다. */
 export interface RenderInfo {
@@ -18,12 +19,20 @@ export interface RenderInfo {
  * 핵심 규칙 하나: draw() 는 반드시 `beat` 만 보고 그림을 결정해야 한다.
  * 내부에 위치나 속도를 상태로 들고 프레임마다 적분하면, 프레임이 한 번만 밀려도
  * 그림과 소리가 영구히 어긋난다. 상태 대신 함수로 그리면 언제나 다시 맞는다.
+ *
+ * 생성자는 `(difficulty, seed)` 를 받는다. difficulty 로 조임새를 정하고,
+ * seed 로 채보를 뽑는다. **채보는 반드시 seed 에서 만들어야 한다** — 고정 배열을
+ * 그대로 쓰면 몇 판 만에 외워지고, 그때부터는 리듬게임이 아니라 암기 시험이 된다.
  */
 export interface MiniGame {
   readonly id: string;
   readonly title: string;
   /** 시작 화면에 띄울 한 줄 설명. */
   readonly hint: string;
+  /** 설명 화면의 조작 안내. 위에서부터 중요한 순서로. */
+  readonly controls: readonly Control[];
+  /** 설명 화면의 "어떻게 점수가 되는가" 한 줄. */
+  readonly scoring: string;
   readonly bpm: number;
   /** 이 박을 넘기면 결과 화면으로. */
   readonly endBeat: number;
@@ -78,7 +87,22 @@ export interface MiniGame {
   /** hold 노트를 뗐을 때(또는 놓쳐서 강제 종료됐을 때). 이어지던 소리를 끈다. */
   holdEnd?(ev: BeatEvent, t: number, v: Verdict, a: AudioEngine): void;
 
+  /**
+   * 판정 없이 hold 가 끊겼을 때 — 일시정지·탭 전환.
+   *
+   * holdEnd 로 대신할 수 없다. 그쪽은 판정이 난 자리라 실패음을 내는 게 맞지만,
+   * 여기서는 아직 아무 판정도 나지 않았다. 이걸 구현하지 않으면 누르고 있던
+   * 소리가 멈춤 화면에서도, 타이틀로 나간 뒤에도 계속 울린다.
+   */
+  holdCancel?(ev: BeatEvent, t: number, a: AudioEngine): void;
+
   draw(g: CanvasRenderingContext2D, r: RenderInfo): void;
+
+  /**
+   * 설명 화면에 뜨는 되풀이 그림. 좌표는 (0,0)~(PREVIEW_W, PREVIEW_H).
+   * @param t 초. 계속 늘어나므로 주기로 나눠 쓴다.
+   */
+  preview(g: CanvasRenderingContext2D, t: number): void;
 }
 
 /** 4/4 기본 그루브 — 미니게임마다 조금씩 바꿔 쓴다. */
@@ -90,8 +114,20 @@ export function basicGroove(step: number, t: number, a: AudioEngine): void {
   if (inBar % 2 === 1) a.hat(t, 0.7);
   else a.hat(t, 0.35);
 
-  // 두 마디 순환 베이스 라인 (A - A - F - G 느낌)
+  // 두 마디 순환 베이스 라인 (A - A - D - E 느낌)
   const BASS = [55, 0, 55, 0, 73.42, 0, 82.41, 0];
   const f = BASS[inBar];
   if (f) a.bass(t, f, 0.24, 0.9);
+
+  // 그 위에 화음을 깐다. 베이스와 같은 진행(Am - Dm)을 두 마디에 걸쳐 도는데,
+  // 마디 하나에 한 번만 울려서 타악기를 가리지 않는다.
+  if (inBar === 0) {
+    const bar = Math.floor(step / 8) % 2;
+    a.pad(t, bar === 0 ? CHORD_AM : CHORD_DM, 1.7, 1);
+  }
 }
+
+/** A minor — A3 C4 E4 */
+const CHORD_AM = [220, 261.63, 329.63];
+/** D minor — D4 F4 A4 */
+const CHORD_DM = [293.66, 349.23, 440];

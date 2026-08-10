@@ -1,8 +1,11 @@
 import type { AudioEngine } from '../core/AudioEngine';
 import { C, W, easeOut, text } from '../core/draw';
+import type { Difficulty } from '../core/difficulty';
+import { makeRng, shuffled, type Rng } from '../core/rng';
 import type { BeatEvent, Verdict } from '../core/types';
 import { shockRing } from './character';
 import { CAST, drawCharacter, idleBlink } from './cast';
+import { PREVIEW_H, PREVIEW_W, type Control } from './howto';
 import { type MiniGame, type RenderInfo } from './MiniGame';
 import { GROUND_Y, drawStage } from './stage';
 
@@ -50,42 +53,44 @@ interface Chord {
   keys: number[];
 }
 
-const PATTERNS: Chord[][] = [
-  [
-    { off: 0, keys: [0] },
-    { off: 1, keys: [3] },
-    { off: 2, keys: [1] },
-    { off: 3, keys: [5] },
-  ],
-  [
-    { off: 0, keys: [0, 3] },
-    { off: 1.5, keys: [1] },
-    { off: 2.5, keys: [5] },
-    { off: 3, keys: [2, 4] },
-  ],
-  [
-    { off: 0, keys: [0] },
-    { off: 0.5, keys: [3] },
-    { off: 1.5, keys: [1, 4] },
-    { off: 2.5, keys: [2] },
-    { off: 3, keys: [5] },
-  ],
-  [
-    { off: 0, keys: [0, 5] },
-    { off: 1, keys: [1] },
-    { off: 1.5, keys: [4] },
-    { off: 2, keys: [2, 3] },
-    { off: 3, keys: [0, 5] },
-  ],
-];
+interface Params {
+  bpm: number;
+  phrases: number;
+  /** 한 악구의 소리 개수 범위. */
+  chords: [number, number];
+  /** 쓸 수 있는 박 자리. 쉬움은 정박만. */
+  slots: readonly number[];
+  /** 두 명이 동시에 내는 화음의 비율. */
+  chordChance: number;
+}
+
+const QUARTERS = [0, 1, 2, 3] as const;
+const EIGHTHS = [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5] as const;
+
+/**
+ * 난이도별 조임.
+ *
+ * 쉬움은 정박 네 자리에 한 명씩만 낸다. 여섯 목소리와 여섯 키를 짝짓는
+ * 것만으로도 처음에는 벅차다 — 화음은 그게 된 다음 얘기다.
+ */
+const PARAMS: Record<Difficulty, Params> = {
+  easy: { bpm: 100, phrases: 4, chords: [3, 4], slots: QUARTERS, chordChance: 0 },
+  normal: { bpm: 112, phrases: 5, chords: [4, 5], slots: EIGHTHS, chordChance: 0.28 },
+  hard: { bpm: 124, phrases: 6, chords: [5, 6], slots: EIGHTHS, chordChance: 0.5 },
+};
 
 export class PianoRepeat implements MiniGame {
   readonly id = 'piano-repeat';
   readonly title = '6인 합창';
   readonly hint = '위 합창단이 낸 소리를 그대로 따라 내세요 — Q W E · I O P';
-  readonly bpm = 116;
-  readonly endBeat = LEAD_IN + PATTERNS.length * PHRASE_BEATS + 2;
+  readonly bpm: number;
+  readonly endBeat: number;
   readonly order = 50;
+  readonly controls: readonly Control[] = [
+    { keys: ['Q', 'W', 'E'], label: '왼쪽 세 명' },
+    { keys: ['I', 'O', 'P'], label: '오른쪽 세 명' },
+  ];
+  readonly scoring = '앞 4박을 듣고 뒤 4박에 같은 순서로 · 둘이 겹치면 동시에';
   /**
    * 기본 자리(176)는 위 합창단(y 120~216) 한가운데라 문구가 캐릭터에 묻힌다.
    * 합창단 위 빈 띠로 올린다. 아래쪽은 "따라 하기!" 문구와 플레이어 합창단이
@@ -95,12 +100,19 @@ export class PianoRepeat implements MiniGame {
   readonly acceptedKeys = KEY_CODES;
 
   private events: BeatEvent[];
+  private phraseCount: number;
 
-  constructor() {
+  constructor(difficulty: Difficulty, seed: number) {
+    const p = PARAMS[difficulty];
+    this.bpm = p.bpm;
+    this.phraseCount = p.phrases;
+    this.endBeat = LEAD_IN + p.phrases * PHRASE_BEATS + 2;
+
+    const patterns = makePatterns(makeRng(seed), p);
     const out: BeatEvent[] = [];
-    for (let i = 0; i < PATTERNS.length; i++) {
+    for (let i = 0; i < patterns.length; i++) {
       const start = LEAD_IN + i * PHRASE_BEATS;
-      for (const chord of PATTERNS[i]) {
+      for (const chord of patterns[i]) {
         const cueBeat = start + chord.off;
         const hitBeat = cueBeat + CALL_BEATS;
         out.push({
@@ -134,6 +146,12 @@ export class PianoRepeat implements MiniGame {
     if (inBar === 0) a.kick(t, 0.7);
     if (inBar === 4) a.snare(t, 0.5);
     a.hat(t, inBar % 2 === 1 ? 0.35 : 0.15);
+
+    // 여기서는 패드를 더 낮게 깐다 — 여섯 목소리가 주인공이라 자리를 비켜준다.
+    if (inBar === 0) {
+      const bar = Math.floor(step / 8) % 2;
+      a.pad(t, bar === 0 ? [146.83, 174.61, 220] : [130.81, 164.81, 196], 1.8, 0.55);
+    }
   }
 
   scheduleCue(ev: BeatEvent, t: number, a: AudioEngine): void {
@@ -156,7 +174,7 @@ export class PianoRepeat implements MiniGame {
     const { beat } = r;
     // 기본 위치(490)는 아래 합창단의 키 라벨(480)과 겹친다. 그 밑으로 내린다.
     drawStage(g, beat, GROUND_Y, 514);
-    drawPhraseCounter(g, beat);
+    drawPhraseCounter(g, beat, this.phraseCount);
     drawPhaseLabel(g, beat);
     drawGroundLines(g);
 
@@ -171,6 +189,92 @@ export class PianoRepeat implements MiniGame {
       drawSinger(g, i, PLAYER_FEET_Y, s, true, beat, m);
     }
   }
+
+  /** 설명 그림 — 위가 부르면 아래가 같은 자리에서 따라 부른다. */
+  preview(g: CanvasRenderingContext2D, t: number): void {
+    const gap = 76;
+    const first = PREVIEW_W / 2 - gap * 2.5;
+    const aiY = 76;
+    const meY = PREVIEW_H - 26;
+
+    // 세 명이 차례로 부르고, 그 다음 아래가 같은 순서로 따라 부른다.
+    const order = [0, 3, 1];
+    const cycle = 3.2;
+    const u = (t % cycle) / cycle;
+    const step = Math.floor(u * 6);
+    const inStep = (u * 6) % 1;
+    const amount = easeOut(1 - inStep, 2);
+    const calling = step < 3;
+    const who = calling ? order[step] : order[step - 3];
+
+    for (let i = 0; i < 6; i++) {
+      const x = first + i * gap;
+      const on = i === who;
+      drawCharacter(g, {
+        id: CAST[i], x, y: aiY, h: 48,
+        sing: on && calling ? amount : 0,
+        hop: on && calling ? amount * 7 : 0,
+      });
+      drawCharacter(g, {
+        id: CAST[i], x, y: meY, h: 48,
+        sing: on && !calling ? amount : 0,
+        hop: on && !calling ? amount * 7 : 0,
+      });
+      text(g, KEY_LABELS[i], x, meY + 14, {
+        size: 12,
+        color: on && !calling ? C.pink : C.inkSoft,
+        weight: 800,
+        alpha: on && !calling ? 1 : 0.5,
+      });
+    }
+
+    text(g, calling ? '잘 듣고' : '따라 하기!', PREVIEW_W / 2, PREVIEW_H / 2 + 2, {
+      size: 18,
+      color: calling ? C.blue : C.pink,
+      weight: 900,
+    });
+  }
+}
+
+/**
+ * 합창 패턴 만들기.
+ *
+ * 자리(slots)에서 필요한 개수만큼 뽑고, 각 자리에 누가 낼지 고른다. 첫 박은
+ * 늘 넣는다 — 악구가 어디서 시작하는지 잡을 데가 있어야 나머지를 센다.
+ *
+ * 여섯 목소리를 고루 쓰도록 한 악구 안에서는 섞은 순서대로 배정한다.
+ * 난수에 맡기면 같은 사람이 네 번 연속 나오는 악구가 생기고, 그러면 여섯 키를
+ * 쓰는 게임이 아니라 한 키 연타가 된다.
+ */
+function makePatterns(rng: Rng, p: Params): Chord[][] {
+  const out: Chord[][] = [];
+
+  for (let i = 0; i < p.phrases; i++) {
+    const ramp = p.phrases > 1 ? i / (p.phrases - 1) : 0;
+    const count = Math.min(
+      p.chords[1],
+      p.chords[0] + Math.round(ramp * (p.chords[1] - p.chords[0]) + rng() * 0.5),
+    );
+
+    const offs = [0, ...shuffled(rng, p.slots.filter((s) => s !== 0)).slice(0, count - 1)]
+      .sort((a, b) => a - b);
+
+    // 여섯 명을 섞어 두고 앞에서부터 꺼내 쓴다. 모자라면 다시 섞는다.
+    let bag = shuffled(rng, [0, 1, 2, 3, 4, 5]);
+    const take = (): number => {
+      if (bag.length === 0) bag = shuffled(rng, [0, 1, 2, 3, 4, 5]);
+      return bag.pop()!;
+    };
+
+    out.push(
+      offs.map((off) => {
+        const pair = rng() < p.chordChance * (0.6 + ramp * 0.8);
+        return { off, keys: pair ? [take(), take()] : [take()] };
+      }),
+    );
+  }
+
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -454,11 +558,11 @@ function drawSoundText(
   });
 }
 
-function drawPhraseCounter(g: CanvasRenderingContext2D, beat: number): void {
+function drawPhraseCounter(g: CanvasRenderingContext2D, beat: number, total: number): void {
   const phraseIdx = beat < LEAD_IN ? 0 : Math.floor((beat - LEAD_IN) / PHRASE_BEATS);
-  if (phraseIdx >= PATTERNS.length) return;
+  if (phraseIdx >= total) return;
   // 오른쪽 위는 PlayScene 의 콤보 자리다. 게임 제목 아래(왼쪽)로 붙인다.
-  text(g, `${Math.min(phraseIdx + 1, PATTERNS.length)} / ${PATTERNS.length}`,
+  text(g, `${Math.min(phraseIdx + 1, total)} / ${total}`,
     22, 54, {
       size: 15, color: C.inkSoft, align: 'left', weight: 800, alpha: 0.7,
     });

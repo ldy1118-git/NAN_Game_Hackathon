@@ -107,8 +107,8 @@ git push --force-with-lease
 | `minigames/stage` | 바닥, 박자 점, 마디 첫 박 배경 플래시 |
 | `scenes/*` | 타이틀 → 플레이 → 결과 흐름, 진행바 · 콤보 · 판정 문구 HUD |
 
-**새 미니게임이 실제로 작성할 건 메서드 5개뿐이다** — `build`(채보), `groove`(반주),
-`scheduleCue`(신호음), `playerSound`(입력음), `draw`(그림).
+**새 미니게임이 실제로 작성할 건 메서드 6개뿐이다** — `build`(채보), `groove`(반주),
+`scheduleCue`(신호음), `playerSound`(입력음), `draw`(그림), `preview`(설명 화면의 작은 그림).
 
 백지에서 시작하지 말고 **`ClapBot.ts`를 복사해서 이름만 바꿔 시작하는 게 제일 빠르다.**
 234줄짜리 동작하는 예제다. `RallyBall.ts`는 "날아오는 물체를 정박에 받아치는" 형태의 예제.
@@ -127,11 +127,44 @@ export class Piano implements MiniGame {
   readonly title = '건반';
   readonly hint = '한 줄 설명';
   readonly order = 50;          // 메뉴 순서. 작을수록 위. 안 적으면 맨 뒤
-  readonly bpm = 120;
-  readonly endBeat = 64;
-  // build / groove / scheduleCue / playerSound / draw
+  readonly bpm: number;
+  readonly endBeat: number;
+  readonly controls = [{ keys: ['Space'], label: '언제 누르는지' }];
+  readonly scoring = '어떻게 점수가 되는지 한 줄';
+
+  // (난이도, 씨앗) 을 받는다. 쉬움·보통·어려움 셋을 반드시 채워야 하고,
+  // 채보는 씨앗에서 뽑아야 한다 — 고정 배열은 몇 판 만에 외워진다.
+  constructor(difficulty: Difficulty, seed: number) { /* ... */ }
+
+  // build / groove / scheduleCue / playerSound / draw / preview
 }
 ```
+
+### 화면 효과는 장식이다
+
+파편(`input.burst`)과 흔들림(`input.shake`)은 **게임 상태에 손대면 안 된다.**
+`core/fx.ts` 는 씬이 dt 로 굴리고, 미니게임의 `draw()` 는 여전히 박(또는 t)의
+순수 함수로 남는다. 프레임이 밀려서 파편이 조금 어긋나는 건 아무 문제가 없지만,
+노트가 어긋나는 건 게임이 망가지는 일이라 둘을 섞지 않는다.
+
+배경도 직접 칠하지 말고 `drawBackdrop(g, phase)` / `drawStage(g, beat)` 를 쓰자.
+게임마다 제 색을 칠하면 메뉴에서 게임으로 넘어갈 때 결이 끊긴다.
+
+### 난이도 셋을 어떻게 나눌까
+
+한 판에서 조이는 것은 **한 가지만** 고른다(속도든 개수든 판정 창이든). 여러 개를
+동시에 올리면 왜 어려워졌는지 아무도 모르고, 난이도 조정도 못 한다.
+
+`PARAMS: Record<Difficulty, Params>` 한 곳에 셋을 나란히 적는 형태를 쓰고 있다.
+나란히 놓여 있어야 "쉬움→보통 차이가 보통→어려움보다 큰가" 같은 게 눈에 보인다.
+
+쉬움에서는 **조작이나 요소를 하나 빼 두자.** 피하기의 쉬움에 굴러오는 장애물이
+없고, 가위바위보의 쉬움에 규칙 뒤집기가 없는 이유가 그것이다. 한 번에 하나씩
+배우게 하는 편이 훨씬 빨리 는다.
+
+새 게임은 **종합게임에도 자동으로 들어간다.** 종합게임은 `MINIGAMES` 를 섞어
+쓰므로 등록만 되면 끝이다. 대신 한 판이 너무 길면 종합게임 전체가 늘어지므로,
+자유형이면 `duration` 을 45초 안쪽으로 잡자.
 
 예전에는 여기에 목록을 손으로 적었고 새 게임마다 그 배열에서 충돌했다.
 이제 **공용 파일을 건드릴 일이 없으니 미니게임끼리는 충돌이 나지 않는다.**

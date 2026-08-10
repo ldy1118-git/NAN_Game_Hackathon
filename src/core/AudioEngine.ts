@@ -239,6 +239,41 @@ export class AudioEngine {
     };
   }
 
+  /**
+   * 화음 패드 — 그루브 밑에 깔리는 넓은 소리.
+   *
+   * 킥·스네어·베이스만 있으면 리듬은 맞는데 곡이 없다. 마디마다 화음을 한 번
+   * 깔아주면 같은 채보가 훨씬 음악처럼 들린다.
+   *
+   * 소리를 뒤로 물리는 게 핵심이다. 어택을 길게(0.08초) 잡고 로우패스로 윗동을
+   * 잘라내면, 타악기와 캐릭터 목소리를 하나도 가리지 않으면서 바닥만 채운다.
+   */
+  pad(t: number, freqs: readonly number[], dur = 1.6, gain = 1): void {
+    if (this.stale(t)) return;
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(1400, t);
+    lp.frequency.linearRampToValueAtTime(700, t + dur);
+
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.055 * gain, 0.0002), t + 0.08);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    lp.connect(g).connect(this.master);
+
+    for (const f of freqs) {
+      // 같은 음을 아주 살짝 어긋나게 둘 겹치면 소리가 두꺼워진다(디튠).
+      for (const cents of [-4, 4]) {
+        const o = this.ctx.createOscillator();
+        o.type = 'triangle';
+        o.frequency.setValueAtTime(f * Math.pow(2, cents / 1200), t);
+        o.connect(lp);
+        o.start(t);
+        o.stop(t + dur + 0.15);
+      }
+    }
+  }
+
   /** 성공 — 위로 붙는 두 음. */
   good(t: number): void {
     if (this.stale(t)) return;

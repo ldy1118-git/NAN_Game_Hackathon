@@ -1,5 +1,7 @@
 import type { App, Scene } from '../core/App';
+import { drawBackdrop } from '../minigames/stage';
 import { C, H, W, circle, text } from '../core/draw';
+import { drawLogo } from '../core/logo';
 import { CastScene } from './CastScene';
 
 /**
@@ -33,8 +35,7 @@ export class BootScene implements Scene {
   }
 
   draw(g: CanvasRenderingContext2D): void {
-    g.fillStyle = C.bg;
-    g.fillRect(0, 0, W, H);
+    drawBackdrop(g, this.t * 1.2);
 
     const pulse = (Math.sin(this.t * 3.2) + 1) / 2;
     g.globalAlpha = 0.12 + pulse * 0.1;
@@ -43,8 +44,8 @@ export class BootScene implements Scene {
     g.fill();
     g.globalAlpha = 1;
 
-    text(g, 'NAN GAME', W / 2, H / 2 - 34, { size: 66, color: C.ink });
-    text(g, '리듬 미니게임', W / 2, H / 2 + 20, { size: 22, color: C.inkSoft, weight: 500 });
+    drawLogo(g, W / 2, H / 2 - 34, 62);
+    text(g, '박자와 순발력에 맞춰 누르는 종합게임', W / 2, H / 2 + 20, { size: 20, color: C.inkSoft, weight: 500 });
     text(g, '아무 키나 누르거나 화면을 클릭하세요', W / 2, H / 2 + 120, {
       size: 20,
       color: C.ink,
