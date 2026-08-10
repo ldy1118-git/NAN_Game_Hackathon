@@ -1,10 +1,15 @@
 import type { App, Scene } from '../core/App';
 import { Runner } from '../core/Runner';
 import { C, H, W, beatPulse, clamp, easeOut, text } from '../core/draw';
+import { Fx } from '../core/fx';
 import { VERDICT_LABEL, type Verdict } from '../core/types';
+import { DIFFICULTY_LABEL, type Difficulty } from '../core/difficulty';
+import { rankOf } from '../core/types';
 import type { MiniGameEntry } from '../minigames';
+import { DifficultyScene } from './DifficultyScene';
+import { fromEntry } from './playable';
 import { ResultScene } from './ResultScene';
-import { TitleScene } from './TitleScene';
+import type { RoundHost } from './round';
 
 /** 판정 문구의 기본 높이. 게임이 `verdictY` 로 덮어쓸 수 있다. */
 const DEFAULT_VERDICT_Y = 176;
@@ -26,14 +31,35 @@ export class PlayScene implements Scene {
   private app!: App;
   private runner!: Runner;
   private entry: MiniGameEntry;
+  private difficulty: Difficulty;
+  private seed: number;
+  /** 종합게임이 감싸고 있으면 결과·나가기를 그쪽에 넘긴다. */
+  private host: RoundHost | null;
   private off: (() => void) | null = null;
   private done = false;
   private phase: Phase = 'playing';
   /** 재개 카운트다운에 남은 시간(초). 박자와 무관한 연출이라 벽시계로 센다. */
   private resumeLeft = 0;
+  /**
+   * 장식 효과 — 파편과 화면 흔들림.
+   *
+   * 판정 자체는 Runner 가 하고 여기서는 "방금 판정이 났다"만 보고 터뜨린다.
+   * 게임의 draw() 는 여전히 박의 순수 함수이고, 이 레이어만 dt 로 굴러간다.
+   */
+  private fx = new Fx();
+  /** 마지막으로 효과를 터뜨린 판정. 같은 판정에 두 번 터지지 않게 기억해 둔다. */
+  private lastFxJudge: unknown = null;
 
-  constructor(entry: MiniGameEntry) {
+  constructor(
+    entry: MiniGameEntry,
+    difficulty: Difficulty,
+    seed: number,
+    host: RoundHost | null = null,
+  ) {
     this.entry = entry;
+    this.difficulty = difficulty;
+    this.seed = seed;
+    this.host = host;
   }
 
   enter(app: App): void {
@@ -41,7 +67,7 @@ export class PlayScene implements Scene {
     // 지역 변수로 받아야 kind 검사가 좁혀진다. this.entry 는 중간에 바뀔 수 있다고 본다.
     const entry = this.entry;
     if (entry.kind !== 'rhythm') throw new Error('PlayScene 은 리듬 게임 전용입니다');
-    const game = entry.create();
+    const game = entry.create(this.difficulty, this.seed);
     // 리드인을 넉넉히 둬서 스케줄러가 첫 마디를 미리 채울 시간을 준다.
     app.conductor.start(game.bpm, 1.4);
     this.runner = new Runner(game, app.conductor, app.audio, app.input);
@@ -50,6 +76,8 @@ export class PlayScene implements Scene {
 
   exit(): void {
     this.off?.();
+    // 누르고 있던 hold 가 남아 있으면 그 소리가 씬이 바뀐 뒤에도 계속 울린다.
+    this.runner?.interrupt();
     this.app.conductor.stop();
   }
 
@@ -61,7 +89,9 @@ export class PlayScene implements Scene {
       return;
     }
     if (code === 'Escape') {
-      this.app.setScene(new TitleScene());
+      // 목록이 아니라 난이도 화면으로 — 방금 하던 게임의 다른 난이도를 고르기 쉽게.
+      if (this.host) this.host.quit();
+      else this.app.setScene(new DifficultyScene(fromEntry(this.entry)));
     } else if (code === 'Space' || code === 'Enter') {
       this.startResume();
     }
@@ -105,11 +135,54 @@ export class PlayScene implements Scene {
     }
 
     this.runner.update();
+    this.spawnJudgeFx();
+    this.fx.update(dt);
     if (this.runner.finished) {
       this.done = true;
-      this.app.setScene(
-        ResultScene.fromRhythm(this.entry, this.runner.stats, this.runner.bestCombo),
-      );
+      const { stats, bestCombo } = this.runner;
+      if (this.host) {
+        this.host.done({
+          entry: this.entry,
+          rank: rankOf(stats),
+          headline: `콤보 ${bestCombo} / ${stats.total}`,
+          value: bestCombo,
+        });
+      } else {
+        this.app.setScene(
+          ResultScene.fromRhythm(this.entry, this.difficulty, stats, bestCombo),
+        );
+      }
+    }
+  }
+
+  /**
+   * 판정 하나에 파편 한 다발.
+   *
+   * 완벽은 위로 솟는 금빛, 좋음은 작은 파랑, 놓침은 아래로 흩어지는 회색과
+   * 화면 흔들림. 등급이 소리·문구뿐 아니라 **몸으로도** 구분되어야 손이 배운다.
+   */
+  private spawnJudgeFx(): void {
+    const lj = this.runner.lastJudge;
+    if (!lj || lj === this.lastFxJudge) return;
+    this.lastFxJudge = lj;
+
+    const y = (this.runner.game.verdictY ?? DEFAULT_VERDICT_Y) + 40;
+    if (lj.verdict === 'perfect') {
+      this.fx.burst(W / 2, y, [C.yellow, C.mint, C.white], {
+        count: 18, speed: [140, 330], size: [3, 7],
+        angle: -Math.PI / 2, spread: Math.PI * 1.1, square: true,
+      });
+      this.fx.shake(3);
+    } else if (lj.verdict === 'good') {
+      this.fx.burst(W / 2, y, [C.blue, C.white], {
+        count: 9, speed: [90, 200], size: [2.5, 5],
+        angle: -Math.PI / 2, spread: Math.PI,
+      });
+    } else {
+      this.fx.burst(W / 2, y, [C.inkSoft], {
+        count: 7, speed: [60, 140], size: [2, 4.5], gravity: 1300,
+      });
+      this.fx.shake(7);
     }
   }
 
@@ -119,6 +192,8 @@ export class PlayScene implements Scene {
 
     // 화면 전체가 정박에 아주 살짝 부푼다. 1% 남짓이지만 "딱딱 맞는" 감각의 절반은 여기서 온다.
     const pulse = beat > 0 ? beatPulse(beat, 6) : 0;
+    g.save();
+    g.translate(this.fx.shakeX, this.fx.shakeY);
     g.save();
     g.translate(W / 2, H / 2);
     g.scale(1 + pulse * 0.009, 1 + pulse * 0.009);
@@ -132,6 +207,10 @@ export class PlayScene implements Scene {
       combo: this.runner.combo,
     });
 
+    g.restore();
+
+    // 파편은 게임 위, HUD 아래. 점수를 가리면 안 된다.
+    this.fx.draw(g);
     g.restore();
 
     this.drawHud(g, beat);
@@ -163,7 +242,10 @@ export class PlayScene implements Scene {
     }
 
     text(g, '일시정지', W / 2, H / 2 - 46, { size: 46, color: C.ink });
-    text(g, '스페이스로 이어서 · Esc 로 나가기', W / 2, H / 2 + 14, {
+    text(g, `${this.runner.game.title} · ${DIFFICULTY_LABEL[this.difficulty]}`,
+      W / 2, H / 2 - 12, { size: 15, color: C.inkSoft, weight: 600, alpha: 0.8 });
+    text(g, this.host ? '스페이스로 이어서 · Esc 로 도전 그만두기'
+                      : '스페이스로 이어서 · Esc 로 나가기', W / 2, H / 2 + 14, {
       size: 18,
       color: C.inkSoft,
       weight: 600,
@@ -189,7 +271,7 @@ export class PlayScene implements Scene {
     g.fillStyle = C.pink;
     g.fillRect(0, 0, W * p, 6);
 
-    text(g, game.title, 22, 30, {
+    text(g, `${game.title} · ${this.host?.label ?? DIFFICULTY_LABEL[this.difficulty]}`, 22, 30, {
       size: 17,
       color: C.inkSoft,
       align: 'left',

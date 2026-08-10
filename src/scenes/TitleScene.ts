@@ -1,11 +1,20 @@
 import type { App, Scene } from '../core/App';
 import { C, H, W, beatPulse, circle, clamp, easeOut, roundRect, shadowed, text } from '../core/draw';
+import { drawLogo } from '../core/logo';
+import {
+  DIFFICULTIES,
+  DIFFICULTY_COLOR,
+  clearedCount,
+  isCleared,
+  recordKey,
+  suggested,
+} from '../core/difficulty';
 import { getRecord } from '../core/records';
 import { MINIGAMES } from '../minigames';
-import { drawBeatDots } from '../minigames/stage';
+import { drawBackdrop, drawBeatDots } from '../minigames/stage';
 import { CalibrationScene } from './CalibrationScene';
-import { FreePlayScene } from './FreePlayScene';
-import { PlayScene } from './PlayScene';
+import { DifficultyScene } from './DifficultyScene';
+import { MEDLEY, fromEntry, type Playable } from './playable';
 
 const MENU_BPM = 112;
 /** 타이틀 화면은 예약을 아주 짧게만 걸어둔다 — 게임 시작 직후까지 소리가 새지 않도록. */
@@ -26,8 +35,15 @@ export class TitleScene implements Scene {
   /** 커서가 움직인 박 — 항목이 튀어오르는 애니메이션의 기준. */
   private movedAt = -99;
 
-  private get items(): string[] {
-    return [...MINIGAMES.map((m) => m.title), '타이밍 맞추기'];
+  /**
+   * 메뉴 줄들.
+   *
+   * 종합게임을 맨 위에 고정으로 붙인다. 자동 등록(`order`)에 끼우지 않는 이유는
+   * 그게 미니게임이 아니라 **미니게임들을 묶는 것**이기 때문이다. 목록 한가운데
+   * 섞여 있으면 다른 게임 하나로 읽힌다.
+   */
+  private get items(): Playable[] {
+    return [MEDLEY, ...MINIGAMES.map(fromEntry)];
   }
 
   enter(app: App): void {
@@ -50,7 +66,8 @@ export class TitleScene implements Scene {
   }
 
   private onKey(code: string): void {
-    const n = this.items.length;
+    // 마지막 한 줄은 '타이밍 맞추기' — 게임이 아니라 설정이라 따로 센다.
+    const n = this.items.length + 1;
     if (code === 'ArrowDown' || code === 'KeyS') {
       this.cursor = (this.cursor + 1) % n;
       this.movedAt = this.app.conductor.beat;
@@ -61,11 +78,10 @@ export class TitleScene implements Scene {
       this.app.audio.blip(this.app.actx.currentTime, 523.25, 0.5, 'square');
     } else if (code === 'Space' || code === 'Enter') {
       this.app.audio.good(this.app.actx.currentTime);
-      if (this.cursor < MINIGAMES.length) {
-        const entry = MINIGAMES[this.cursor];
-        this.app.setScene(
-          entry.kind === 'free' ? new FreePlayScene(entry) : new PlayScene(entry),
-        );
+      const items = this.items;
+      if (this.cursor < items.length) {
+        // 곧바로 시작하지 않고 난이도를 먼저 고른다.
+        this.app.setScene(new DifficultyScene(items[this.cursor]));
       } else {
         this.app.setScene(new CalibrationScene());
       }
@@ -89,34 +105,17 @@ export class TitleScene implements Scene {
   draw(g: CanvasRenderingContext2D): void {
     const beat = this.app.conductor.beat;
     const pulse = beatPulse(beat, 5);
-    const barPulse = beatPulse(beat / 4, 6);
 
-    g.fillStyle = C.bg;
-    g.fillRect(0, 0, W, H);
-    g.save();
-    g.globalAlpha = barPulse * 0.35;
-    g.fillStyle = C.white;
-    g.fillRect(0, 0, W, H);
-    g.restore();
-
-    // 배경에서 박자에 맞춰 부푸는 원
-    g.save();
-    g.globalAlpha = 0.1;
-    g.fillStyle = C.blue;
-    circle(g, 150, 130, 90 + pulse * 14);
-    g.fill();
-    g.fillStyle = C.pink;
-    circle(g, 830, 430, 110 + beatPulse(beat + 0.5, 5) * 16);
-    g.fill();
-    g.restore();
+    // 배경은 모든 화면이 공유한다 — 메뉴에서 게임으로 넘어가도 결이 안 끊긴다.
+    drawBackdrop(g, beat);
 
     // 제목 — 정박에 살짝 커진다.
     g.save();
     g.translate(W / 2, 108);
     g.scale(1 + pulse * 0.035, 1 + pulse * 0.035);
-    text(g, 'NAN GAME', 0, 0, { size: 58, color: C.ink });
+    drawLogo(g, 0, 0, 54);
     g.restore();
-    text(g, '박자에 맞춰 누르는 리듬 미니게임', W / 2, 146, {
+    text(g, '박자와 순발력에 맞춰 누르는 종합게임', W / 2, 146, {
       size: 17,
       color: C.inkSoft,
       weight: 500,
@@ -124,7 +123,7 @@ export class TitleScene implements Scene {
 
     // 메뉴 — 미니게임이 늘어나도 화면을 넘지 않도록 창을 두고 스크롤한다.
     const items = this.items;
-    const n = items.length;
+    const n = items.length + 1;   // + 타이밍 맞추기
     const maxStart = Math.max(0, n - VISIBLE_ROWS);
     // 커서를 창 가운데 두되, 목록의 처음·끝에서는 더 밀지 않는다.
     const start = clamp(this.cursor - Math.floor(VISIBLE_ROWS / 2), 0, maxStart);
@@ -153,24 +152,31 @@ export class TitleScene implements Scene {
         sel ? C.pink : 'rgba(43, 42, 51, 0.07)',
         sel ? 6 : 3,
       );
-      text(g, items[i], W / 2, y, {
+      const item = i < items.length ? items[i] : null;
+      const label = item ? item.title : '타이밍 맞추기';
+      // 종합게임은 한눈에 구별되어야 한다 — 다른 게임 하나로 읽히면 안 된다.
+      const isMedley = item === MEDLEY;
+      if (isMedley && !sel) {
+        g.fillStyle = 'rgba(255, 93, 126, 0.1)';
+        roundRect(g, x, y - h / 2, w, h, 14);
+        g.fill();
+      }
+      text(g, isMedley ? `★ ${label}` : label, W / 2, y, {
         size: sel ? 24 : 20,
-        color: sel ? C.white : C.inkSoft,
-        weight: sel ? 800 : 600,
+        color: sel ? C.white : isMedley ? C.pink : C.inkSoft,
+        weight: sel ? 800 : isMedley ? 800 : 600,
       });
 
       // 아직 측정 전이면 타이밍 맞추기 줄에 점을 찍어둔다. 안내 문구와 짝을 이뤄
       // "어디를 눌러야 하는지"까지 알려준다.
-      if (i === MINIGAMES.length && !this.app.hasCalibrated) {
+      if (i === items.length && !this.app.hasCalibrated) {
         g.fillStyle = sel ? C.white : C.pink;
         circle(g, x + w - 22, y, 4 + beatPulse(beat, 4) * 2.5);
         g.fill();
       }
 
-      // 미니게임 줄에는 지금까지의 최고 기록을 붙인다.
-      if (i < MINIGAMES.length) {
-        drawRecordBadge(g, MINIGAMES[i].id, x + w - 16, y, sel);
-      }
+      // 게임 줄에는 난이도 셋의 진행도를 붙인다.
+      if (item) drawRecordBadge(g, item.id, x + w - 16, y, sel);
       g.restore();
     }
 
@@ -182,15 +188,24 @@ export class TitleScene implements Scene {
     // 갈리는 값인데, 메뉴 맨 아래 항목 하나로는 아무도 누르지 않는다.
     if (!this.app.hasCalibrated) {
       this.drawCalibrationNudge(g, beat);
+    } else if (this.cursor < items.length) {
+      const item = items[this.cursor];
+      text(g, item.hint, W / 2, 458, { size: 15, color: C.inkSoft, weight: 500 });
+      text(g, progressLabel(item.id), W / 2, 480, {
+        size: 13,
+        color: C.pink,
+        weight: 700,
+        alpha: 0.85,
+      });
     } else {
-      const hint =
-        this.cursor < MINIGAMES.length
-          ? MINIGAMES[this.cursor].hint
-          : '내 환경의 입력 지연을 재서 판정을 보정합니다';
-      text(g, hint, W / 2, 466, { size: 15, color: C.inkSoft, weight: 500 });
+      text(g, '내 환경의 입력 지연을 재서 판정을 보정합니다', W / 2, 466, {
+        size: 15,
+        color: C.inkSoft,
+        weight: 500,
+      });
     }
-    drawBeatDots(g, beat, 500);
-    text(g, '↑ ↓ 로 선택 · 스페이스로 시작 · M 음소거 · − + 음량', W / 2, H - 20, {
+    drawBeatDots(g, beat, 502);
+    text(g, '↑ ↓ 로 선택 · 스페이스로 시작 · M 음소거 · − + 음량', W / 2, H - 16, {
       size: 14,
       color: C.inkSoft,
       weight: 500,
@@ -224,15 +239,15 @@ export class TitleScene implements Scene {
 }
 
 /**
- * 메뉴 줄 오른쪽 끝의 기록 표시. 위로 갈수록 좋은 사다리다.
+ * 메뉴 줄 오른쪽 끝의 진행도 표시 — 난이도 셋을 점 셋으로 그린다.
+ * 왼쪽부터 쉬움·보통·어려움이고, 색은 난이도 색을 따라간다.
  *
- *   (없음)  아직 안 해봄
- *   숫자    해봤음 — 최고 콤보
- *   완벽    superb 등급을 낸 적 있음
- *   ★       모든 노트를 완벽으로 낸 적 있음
+ *   ○ ○ ○   아직 안 깸
+ *   ● ● ○   보통까지 깸
+ *   ● ● ★   어려움에서 올 퍼펙트
  *
- * 등급 이름(RANK_LABEL)을 그대로 쓰지 않는다. "처음부터"는 결과 화면에서는
- * 권유지만 메뉴에 붙으면 기록이 아니라 지시문으로 읽힌다.
+ * 숫자 하나(최고 기록)로는 셋의 상태를 담을 수 없다. 점 셋이면 "어디까지
+ * 갔는지"와 "다음에 뭘 하면 되는지"가 한 번에 보인다.
  */
 function drawRecordBadge(
   g: CanvasRenderingContext2D,
@@ -241,33 +256,44 @@ function drawRecordBadge(
   y: number,
   sel: boolean,
 ): void {
-  const r = getRecord(id);
-  if (!r) return;
+  const dot = 6;
+  const gap = 15;
+  const next = suggested(id);
 
-  if (r.allPerfect) {
-    // 올 퍼펙트는 별 하나로. 글자보다 눈에 먼저 걸린다.
-    text(g, '★', right - 8, y, { size: sel ? 20 : 17, color: sel ? C.white : C.yellow });
-    return;
-  }
+  DIFFICULTIES.forEach((d, i) => {
+    // 오른쪽 끝에서 왼쪽으로 어려움·보통·쉬움 순서가 되도록 자리를 잡는다.
+    const x = right - (DIFFICULTIES.length - 1 - i) * gap - dot;
+    const rec = getRecord(recordKey(id, d));
 
-  if (r.rank === 'superb') {
-    text(g, '완벽', right, y, {
-      size: 13,
-      color: sel ? C.white : C.mint,
-      align: 'right',
-      weight: 800,
-    });
-    return;
-  }
+    if (rec?.allPerfect) {
+      // 올 퍼펙트는 별로. 점 사이에서 혼자 튄다.
+      text(g, '★', x, y, { size: sel ? 16 : 14, color: sel ? C.white : C.yellow });
+      return;
+    }
 
-  // 아직 등급이 낮으면 최고 콤보를 보여준다. 얼마나 더 가야 하는지가 숫자로 보인다.
-  text(g, `${r.combo}`, right, y, {
-    size: 13,
-    color: sel ? C.white : C.inkSoft,
-    align: 'right',
-    weight: 700,
-    alpha: sel ? 0.8 : 0.5,
+    if (isCleared(id, d)) {
+      g.fillStyle = sel ? C.white : DIFFICULTY_COLOR[d];
+      circle(g, x, y, dot);
+      g.fill();
+      return;
+    }
+
+    // 아직 안 깬 칸은 테두리만. 다음에 할 만한 칸은 진하게.
+    g.strokeStyle = sel
+      ? 'rgba(255,255,255,0.9)'
+      : d === next ? DIFFICULTY_COLOR[d] : 'rgba(43, 42, 51, 0.22)';
+    g.lineWidth = d === next ? 2.5 : 1.8;
+    circle(g, x, y, dot - 1);
+    g.stroke();
   });
+}
+
+/** 커서가 놓인 게임의 진행 상황을 힌트 줄 아래 한마디로. */
+function progressLabel(id: string): string {
+  const done = clearedCount(id);
+  if (done === 0) return '쉬움 · 보통 · 어려움 — 아무거나 고르세요';
+  if (done >= DIFFICULTIES.length) return '세 난이도 전부 깼습니다';
+  return `${done}/${DIFFICULTIES.length} 난이도 완료`;
 }
 
 /** 목록이 더 있다는 표시. dir = -1 위, 1 아래. */

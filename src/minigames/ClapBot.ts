@@ -1,10 +1,13 @@
 import type { AudioEngine } from '../core/AudioEngine';
 import { C, circle, clamp, easeOut, lerp, text } from '../core/draw';
+import type { Difficulty } from '../core/difficulty';
+import { makeRng, shuffled, type Rng } from '../core/rng';
 import type { BeatEvent, Verdict } from '../core/types';
 import { shockRing } from './character';
 import { drawCharacter, idleBlink, type CastId } from './cast';
 import { basicGroove, type MiniGame, type RenderInfo } from './MiniGame';
 import { decay, nextBeat, prevAndNext, windUp } from './beat';
+import { PREVIEW_H, PREVIEW_W, type Control } from './howto';
 import { GROUND_Y, drawStage } from './stage';
 
 /**
@@ -16,19 +19,7 @@ import { GROUND_Y, drawStage } from './stage';
  * 귀로 기억한 박자와 눈으로 보는 위치가 같은 지점에서 만난다.
  */
 
-/** 4박 안에서의 손뼉 위치들. 뒤로 갈수록 잘게 쪼개진다. */
-const PATTERNS: number[][] = [
-  [0, 1, 2, 3],
-  [0, 1, 2, 2.5],
-  [0, 1.5, 2, 3],
-  [0, 0.5, 1, 2],
-  [0, 1, 1.5, 2.5],
-  [0.5, 1, 2, 2.5, 3],
-  [0, 0.5, 1.5, 2, 3],
-  [0, 0.5, 1, 1.5, 2.5, 3],
-];
-
-const LEAD_IN = 4;      // 그루브가 자리잡을 여유
+const LEAD_IN = 4;
 const PHRASE = 8;       // 콜 4박 + 리스폰스 4박
 const BOT_X = 268;
 const PLAYER_X = 700;
@@ -41,17 +32,59 @@ const HAND_Y = GROUND_Y - BODY_H * 0.3;
 /** 손뼉 직후 몸이 눌렸다 돌아오는 데 걸리는 박. */
 const CLAP_DECAY = 0.55;
 
+interface Params {
+  bpm: number;
+  phrases: number;
+  /** 4박 안에 넣을 손뼉 개수 범위. */
+  claps: [number, number];
+  /**
+   * 쓸 수 있는 박 위치. 쉬움은 정박만, 위로 갈수록 8분·16분이 열린다.
+   * 이 배열에서 골라 뽑으므로 "어떤 자리에 올 수 있는가" 자체가 난이도다.
+   */
+  slots: readonly number[];
+}
+
+const QUARTERS = [0, 1, 2, 3] as const;
+const EIGHTHS = [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5] as const;
+const SIXTEENTHS = [
+  0, 0.5, 0.75, 1, 1.5, 1.75, 2, 2.5, 2.75, 3, 3.5,
+] as const;
+
+/**
+ * 난이도별 조임.
+ *
+ * 쉬움은 정박 네 자리만 쓴다. 손뼉 넷이 전부 정박에 오면 그루브의 킥과
+ * 그대로 겹쳐서, 박자를 못 세는 사람도 몸으로 따라 칠 수 있다.
+ */
+const PARAMS: Record<Difficulty, Params> = {
+  easy: { bpm: 108, phrases: 6, claps: [3, 4], slots: QUARTERS },
+  normal: { bpm: 120, phrases: 7, claps: [4, 5], slots: EIGHTHS },
+  hard: { bpm: 132, phrases: 8, claps: [5, 6], slots: SIXTEENTHS },
+};
+
 export class ClapBot implements MiniGame {
   readonly id = 'clapbot';
   readonly title = '따라 치기';
   readonly hint = '로봇이 친 손뼉을 그대로 따라 치세요 — 스페이스';
   readonly order = 10;   // 가장 기본형 — 여기서 시작
-  readonly bpm = 124;
-  readonly endBeat = LEAD_IN + PATTERNS.length * PHRASE + 2;
+  readonly bpm: number;
+  readonly endBeat: number;
+  readonly controls: readonly Control[] = [
+    { keys: ['Space'], label: '노란 점이 손에 닿는 순간' },
+  ];
+  readonly scoring = '앞 4박을 듣고 뒤 4박에 똑같이 · 정확할수록 완벽';
 
-  build(): BeatEvent[] {
+  private events: BeatEvent[];
+
+  constructor(difficulty: Difficulty, seed: number) {
+    const p = PARAMS[difficulty];
+    this.bpm = p.bpm;
+    this.endBeat = LEAD_IN + p.phrases * PHRASE + 2;
+
+    const rng = makeRng(seed);
     const out: BeatEvent[] = [];
-    PATTERNS.forEach((pattern, i) => {
+
+    makePatterns(rng, p).forEach((pattern, i) => {
       const start = LEAD_IN + i * PHRASE;
       for (const off of pattern) {
         // 콜: 로봇이 친다. 이 박에서 메아리 점이 출발한다.
@@ -64,7 +97,12 @@ export class ClapBot implements MiniGame {
         });
       }
     });
-    return out.sort((a, b) => a.beat - b.beat);
+
+    this.events = out.sort((a, b) => a.beat - b.beat);
+  }
+
+  build(): BeatEvent[] {
+    return this.events;
   }
 
   groove(step: number, t: number, a: AudioEngine): void {
@@ -147,7 +185,7 @@ export class ClapBot implements MiniGame {
 
   private drawPhaseLabel(g: CanvasRenderingContext2D, beat: number): void {
     if (beat < LEAD_IN - 0.5) return;
-    const local = (beat - LEAD_IN) % PHRASE;
+    const local = ((beat - LEAD_IN) % PHRASE + PHRASE) % PHRASE;
     const listening = local < 4;
     const label = listening ? '잘 듣고' : '따라 치기!';
     const color = listening ? C.inkSoft : C.pink;
@@ -156,9 +194,77 @@ export class ClapBot implements MiniGame {
     const pop = since < 0.6 ? easeOut(1 - since / 0.6, 3) : 0;
     text(g, label, 480, 96, { size: 30 + pop * 12, color, alpha: 0.5 + pop * 0.5 });
   }
+
+  /** 설명 그림 — 왼쪽이 치면 점이 날아가고, 오른쪽이 받아 친다. */
+  preview(g: CanvasRenderingContext2D, t: number): void {
+    const gy = PREVIEW_H - 24;
+    const botX = 108;
+    const meX = PREVIEW_W - 108;
+    const handY = gy - 46;
+
+    const u = (t % 2.0) / 2.0;
+    // 앞 절반은 점이 날아가고, 뒤 절반은 받아 친 여운.
+    const flying = u < 0.55;
+    const p = clamp(u / 0.55, 0, 1);
+
+    const botHit = u < 0.12 ? 1 - u / 0.12 : 0;
+    const meHit = u >= 0.55 && u < 0.72 ? 1 - (u - 0.55) / 0.17 : 0;
+
+    drawCharacter(g, {
+      id: BOT_ID, x: botX, y: gy, h: 88,
+      squash: botHit * 0.4, armL: 1 - botHit, armR: 1 - botHit, sing: botHit * 0.8,
+    });
+    drawCharacter(g, {
+      id: PLAYER_ID, x: meX, y: gy, h: 88,
+      squash: meHit * 0.4, armL: 1 - meHit, armR: 1 - meHit, sing: meHit * 0.8,
+    });
+
+    if (flying) {
+      const x = lerp(botX + 40, meX - 40, p);
+      const y = handY - Math.sin(p * Math.PI) * 54;
+      g.fillStyle = C.yellow;
+      circle(g, x, y, 8 + easeOut(p, 4) * 4);
+      g.fill();
+      g.strokeStyle = C.ink;
+      g.lineWidth = 2.5;
+      g.stroke();
+    }
+
+    text(g, '잘 듣고', botX, 28, { size: 15, color: C.inkSoft, weight: 800 });
+    text(g, '따라 치기!', meX, 28, {
+      size: 15,
+      color: C.pink,
+      weight: 800,
+      alpha: meHit > 0 ? 1 : 0.5,
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
+
+/**
+ * 손뼉 패턴 만들기.
+ *
+ * 쓸 수 있는 자리(slots)에서 필요한 개수만큼 뽑아 정렬한다. 첫 박은 늘 넣는다 —
+ * 악구가 어디서 시작하는지 귀로 잡을 자리가 있어야 나머지를 셀 수 있다.
+ */
+function makePatterns(rng: Rng, p: Params): number[][] {
+  const out: number[][] = [];
+
+  for (let i = 0; i < p.phrases; i++) {
+    // 뒤로 갈수록 한 개씩 촘촘해진다. 한 판 안에서도 상승이 있어야 한다.
+    const ramp = p.phrases > 1 ? i / (p.phrases - 1) : 0;
+    const count = Math.min(
+      p.claps[1],
+      p.claps[0] + Math.round(ramp * (p.claps[1] - p.claps[0]) + rng() * 0.5),
+    );
+
+    const rest = shuffled(rng, p.slots.filter((s) => s !== 0)).slice(0, count - 1);
+    out.push([0, ...rest].sort((a, b) => a - b));
+  }
+
+  return out;
+}
 
 /**
  * 손 벌림 정도를 캐릭터 팔 값으로 옮긴다.

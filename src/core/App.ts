@@ -1,7 +1,7 @@
 import { AudioEngine } from './AudioEngine';
 import { Conductor } from './Conductor';
 import { Input } from './Input';
-import { C, H, W } from './draw';
+import { C, H, W, easeOut } from './draw';
 
 export interface Scene {
   enter?(app: App): void;
@@ -46,6 +46,19 @@ const VOLUME_STEP = 0.1;
  */
 const STALL_SEC = 0.25;
 
+/**
+ * 씬이 바뀔 때 화면을 쓸어내는 시간(초).
+ *
+ * 예전에는 한 프레임 만에 툭 바뀌었다. 기능상 문제는 없지만 화면이 튀어서
+ * "덜 만든 것" 처럼 보였다. 0.34초짜리 가림막 하나가 체감 완성도를 제일 싸게
+ * 올려주는 장치다.
+ *
+ * 새 씬은 이미 그려지고 있고 그 **위로** 판이 걷힌다. 두 씬을 동시에 들고
+ * 있어야 하는 크로스페이드와 달리, 이렇게 하면 씬 관리가 지금 그대로여도 된다.
+ */
+const WIPE_SEC = 0.34;
+const WIPE_BARS = 7;
+
 export class App {
   readonly canvas: HTMLCanvasElement;
   readonly g: CanvasRenderingContext2D;
@@ -61,6 +74,8 @@ export class App {
   private scale = 1;
   /** 음량 표시를 띄운 시각(performance.now). 연출용이라 벽시계로 충분하다. */
   private volumeShownAt = -1e9;
+  /** 씬 전환 가림막의 진행도(0 = 완전히 가림, 1 = 다 걷힘). */
+  private wipe = 1;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -133,6 +148,7 @@ export class App {
     s.enter?.(this);
     // 씬 전환에 걸린 시간이 새 씬의 멈춤으로 잡히지 않도록 기준을 다시 잡는다.
     this.lastCtxTime = this.actx.currentTime;
+    this.wipe = 0;
   }
 
   start(): void {
@@ -175,7 +191,34 @@ export class App {
     this.g.save();
     this.drawVolume(this.g, now);
     this.g.restore();
+
+    if (this.wipe < 1) {
+      this.wipe = Math.min(1, this.wipe + dt / WIPE_SEC);
+      this.g.save();
+      this.drawWipe(this.g);
+      this.g.restore();
+    }
   };
+
+  /**
+   * 전환 가림막 — 가로 띠들이 좌우로 갈라지며 걷힌다.
+   *
+   * 띠마다 조금씩 늦게 출발시키는 게 요령이다. 다 같이 움직이면 판 하나가
+   * 미끄러지는 것으로 보이고, 어긋나야 결이 생겨서 "쓸어낸다"는 느낌이 난다.
+   */
+  private drawWipe(g: CanvasRenderingContext2D): void {
+    const barH = H / WIPE_BARS;
+    for (let i = 0; i < WIPE_BARS; i++) {
+      // 위에서 아래로 차례로 걷힌다. 마지막 띠도 제때 끝나도록 폭을 남겨둔다.
+      const delay = (i / WIPE_BARS) * 0.35;
+      const p = easeOut((this.wipe - delay) / (1 - 0.35), 3);
+      if (p >= 1) continue;
+      // 홀짝을 반대로 밀어 지그재그로 갈라지게 한다.
+      const dir = i % 2 === 0 ? -1 : 1;
+      g.fillStyle = i % 2 === 0 ? C.ink : '#3A3844';
+      g.fillRect(dir * p * W, i * barH, W, barH + 1);
+    }
+  }
 
   /**
    * 음량 표시 — 바꾼 직후 잠깐 떴다가 사라진다.

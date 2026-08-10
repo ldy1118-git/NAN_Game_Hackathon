@@ -1,8 +1,18 @@
 import type { AudioEngine } from '../core/AudioEngine';
 import { C, W, circle, clamp, easeOut, lerp, text } from '../core/draw';
+import type { Difficulty } from '../core/difficulty';
+import { makeRng } from '../core/rng';
 import type { BeatEvent, Verdict } from '../core/types';
-import { decay, prevAndNext, windUp } from './beat';
+import {
+  decay,
+  layoutPhrases,
+  makeTravelPhrases,
+  prevAndNext,
+  windUp,
+  type PhraseSpec,
+} from './beat';
 import { drawCharacter, idleBlink } from './cast';
+import { PREVIEW_H, PREVIEW_W, type Control } from './howto';
 import { type MiniGame, type RenderInfo } from './MiniGame';
 import { GROUND_Y, drawStage } from './stage';
 
@@ -26,15 +36,40 @@ import { GROUND_Y, drawStage } from './stage';
 
 const LEAD_IN = 4;
 
-/** 각 악구의 조준 시간(박). 짧을수록 링이 빨리 좁혀져 어렵다. */
-const PHRASES: number[][] = [
-  [3, 3, 3, 3],               // 느긋하게 감 잡기
-  [2, 2, 2, 2],               // 기본 속도
-  [2, 2, 1.5, 1.5],           // 중간에 빨라진다
-  [1.5, 1.5, 1.5, 1.5],
-  [2, 1, 1, 2, 1, 1],         // 느림-빠름 섞기
-  [1, 1, 1, 1, 1, 1],         // 마지막 속사
-];
+interface Params {
+  bpm: number;
+  phrase: PhraseSpec;
+}
+
+/**
+ * 난이도별 조임.
+ *
+ * 조이는 것은 조준 시간(travel) 하나다. 시작 반지름이 고정이므로 시간이
+ * 짧을수록 링이 그만큼 빠르게 달려든다 — 난이도가 화면에 그대로 보인다.
+ *
+ * 쉬움은 3박·2박만 쓴다. 링이 천천히 좁혀지는 동안 "겹치는 순간"이
+ * 어떤 그림인지 눈에 새기는 게 먼저다.
+ */
+const PARAMS: Record<Difficulty, Params> = {
+  easy: {
+    bpm: 104,
+    phrase: { phrases: 5, notes: [4, 4], travels: [[3, 1.6], [2, 1]], maxRun: 0 },
+  },
+  normal: {
+    bpm: 116,
+    phrase: {
+      phrases: 6, notes: [4, 5],
+      travels: [[3, 0.6], [2, 2], [1.5, 1.2]], maxRun: 2,
+    },
+  },
+  hard: {
+    bpm: 126,
+    phrase: {
+      phrases: 7, notes: [5, 6],
+      travels: [[2, 1.2], [1.5, 1.6], [1, 1.6]], maxRun: 4,
+    },
+  },
+};
 
 const TARGET_X = 690;
 const TARGET_Y = 232;
@@ -67,33 +102,25 @@ export class Archery implements MiniGame {
   readonly title = '양궁';
   readonly hint = '조준 링이 한가운데 주황 점에 겹치는 순간 쏘세요 — 스페이스';
   readonly order = 25;   // 따라 치기(10)와 튕겨내기(20) 사이
-  readonly bpm = 118;
+  readonly bpm: number;
   readonly endBeat: number;
   /** 기본 자리(176)는 과녁 한복판이라 문구가 묻힌다. 과녁 위 빈 띠로 올린다. */
   readonly verdictY = 84;
+  readonly controls: readonly Control[] = [
+    { keys: ['Space'], label: '링이 한가운데 점에 겹칠 때' },
+  ];
+  readonly scoring = '누른 순간 링이 있던 자리에 꽂힙니다 · 한가운데면 명중';
 
   private events: BeatEvent[];
 
-  constructor() {
-    const out: BeatEvent[] = [];
-    let t = LEAD_IN;
-
-    for (const phrase of PHRASES) {
-      for (const travel of phrase) {
-        // cue: 활을 겨누기 시작하는 박. 이때부터 링이 좁혀진다.
-        out.push({ beat: t, kind: 'cue', data: { travel } });
-        // hit: 링이 금색에 겹치는 박. 정확히 여기서 쏴야 한다.
-        out.push({ beat: t + travel, kind: 'hit', data: { travel, from: t } });
-        // 다음 조준은 이번 발이 꽂히는 순간 시작된다 — 링은 항상 하나만 보인다.
-        t += travel;
-      }
-      // 최소 2박은 쉬되, 다음 악구가 마디 머리에서 시작하도록 4의 배수로 맞춘다.
-      const sum = phrase.reduce((a, b) => a + b, 0);
-      t += 2 + ((4 - ((sum + 2) % 4)) % 4);
-    }
-
-    this.events = out.sort((a, b) => a.beat - b.beat);
-    this.endBeat = t + 1;
+  constructor(difficulty: Difficulty, seed: number) {
+    const p = PARAMS[difficulty];
+    this.bpm = p.bpm;
+    // cue = 활을 겨누기 시작하는 박(여기서부터 링이 좁혀진다),
+    // hit = 링이 한가운데에 닿는 박. 다음 조준은 이번 발이 꽂히는 순간 시작된다.
+    const laid = layoutPhrases(makeTravelPhrases(makeRng(seed), p.phrase), LEAD_IN);
+    this.events = laid.events;
+    this.endBeat = laid.endBeat + 1;
   }
 
   build(): BeatEvent[] {
@@ -110,6 +137,12 @@ export class Archery implements MiniGame {
     const BASS = [82.41, 0, 0, 0, 65.41, 0, 0, 0];
     const f = BASS[inBar];
     if (f) a.bass(t, f, 0.26, 0.75);
+
+    // 두 마디를 도는 낮은 화음. 과녁 앞의 정적을 채우되 시위 소리를 가리지 않는다.
+    if (inBar === 0) {
+      const bar = Math.floor(step / 8) % 2;
+      a.pad(t, bar === 0 ? [164.81, 196, 246.94] : [130.81, 164.81, 196], 1.9, 0.85);
+    }
   }
 
   /** 시위를 당기는 소리. 조준 시간이 짧을수록 높게 울려 속도를 귀로 알린다. */
@@ -156,6 +189,67 @@ export class Archery implements MiniGame {
     if (beat < LEAD_IN - 0.5) {
       text(g, '준비...', W / 2, 140, { size: 28, color: C.inkSoft, alpha: 0.6 });
     }
+  }
+
+  /** 설명 그림 — 링이 과녁 한가운데로 좁혀 들어와 겹치는 순간을 되풀이한다. */
+  preview(g: CanvasRenderingContext2D, t: number): void {
+    const cx = PREVIEW_W - 150;
+    const cy = PREVIEW_H / 2;
+    const rings: [number, string][] = [
+      [58, C.white], [47, C.mint], [36, C.blue], [25, C.pink], [14, C.yellow], [7, '#FF8A3D'],
+    ];
+    for (const [rad, color] of rings) {
+      g.fillStyle = color;
+      circle(g, cx, cy, rad);
+      g.fill();
+      g.strokeStyle = C.ink;
+      g.lineWidth = rad === 58 ? 2.5 : 1.5;
+      g.stroke();
+    }
+
+    const u = (t % 2.2) / 2.2;
+    // 앞 80% 동안 링이 좁혀지고, 마지막에 화살이 꽂힌다.
+    const aiming = u < 0.8;
+    const p = clamp(u / 0.8, 0, 1);
+    const rad = lerp(94, 7, p);
+
+    drawCharacter(g, {
+      id: 'man1',
+      x: 84,
+      y: PREVIEW_H - 16,
+      h: 104,
+      armR: 0.75,
+      armL: 0.35 + (aiming ? p : 0) * 0.5,
+    });
+
+    if (aiming) {
+      g.save();
+      g.globalAlpha = 0.55 + p * 0.45;
+      g.lineWidth = 5 + p * 3;
+      g.strokeStyle = 'rgba(255,255,255,0.92)';
+      circle(g, cx, cy, Math.max(rad, 2));
+      g.stroke();
+      g.setLineDash([9, 7]);
+      g.lineWidth = 3 + p * 2;
+      g.strokeStyle = C.ink;
+      circle(g, cx, cy, Math.max(rad, 2));
+      g.stroke();
+      g.setLineDash([]);
+      g.restore();
+    } else {
+      drawArrow(g, cx, cy, -0.14);
+      const age = (u - 0.8) / 0.2;
+      g.save();
+      g.globalAlpha = 1 - age;
+      text(g, '명중!', cx, cy - 76, { size: 20, color: '#FF8A3D', weight: 900 });
+      g.restore();
+    }
+
+    text(g, aiming ? '좁혀지는 중...' : '지금 쐈다', 150, 26, {
+      size: 14,
+      color: aiming ? C.inkSoft : C.pink,
+      weight: 800,
+    });
   }
 }
 
@@ -261,7 +355,9 @@ function drawAimRing(g: CanvasRenderingContext2D, events: BeatEvent[], beat: num
     const p = (beat - from) / travel;
     if (p < 0 || p > 1.25) continue;
 
-    const rad = lerp(RING_START, BULL_R, Math.min(p, 1.25));
+    // p 는 1.25 까지 그리지만(정박을 지나친 뒤 사라지는 구간) 반지름은 1 에서 멈춘다.
+    // 1.25 를 그대로 넣으면 BULL_R 을 지나쳐 음수가 되어, 조준 표식이 반대편으로 뒤집힌다.
+    const rad = lerp(RING_START, BULL_R, Math.min(p, 1));
     const near = easeOut(clamp(p, 0, 1), 3);
     const fast = travel <= 1;
 

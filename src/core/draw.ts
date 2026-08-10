@@ -91,7 +91,9 @@ export function text(
   g.save();
   g.globalAlpha = o.alpha ?? 1;
   g.fillStyle = o.color ?? C.ink;
-  g.font = `${o.weight ?? 700} ${o.size ?? 24}px "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif`;
+  // 이모지 폰트를 뒤에 붙여 둔다. 손모양·자물쇠처럼 글자 대신 그림을 쓰는 자리가
+  // 있는데, 한글 폰트만 적어 두면 기기에 따라 두부(□)로 떨어진다.
+  g.font = `${o.weight ?? 700} ${o.size ?? 24}px "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"`;
   g.textAlign = o.align ?? 'center';
   g.textBaseline = o.baseline ?? 'middle';
   g.fillText(s, x, y);

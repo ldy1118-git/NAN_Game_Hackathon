@@ -1,7 +1,11 @@
 import type { AudioEngine } from '../core/AudioEngine';
-import { C, H, W, circle, clamp, easeOut, lerp, text } from '../core/draw';
+import { C, W, circle, clamp, easeOut, lerp, text } from '../core/draw';
+import type { Difficulty } from '../core/difficulty';
+import { makeRng, type Rng } from '../core/rng';
 import { rankByScore, type FreeGame, type FreeInput, type FreeResult } from './FreeGame';
 import { CAST, drawCharacter } from './cast';
+import { PREVIEW_W, type Control } from './howto';
+import { drawBackdrop } from './stage';
 
 /**
  * 두더지 잡기 — 구멍에서 튀어나온 사람을 그 자리 키로 친다.
@@ -16,7 +20,6 @@ import { CAST, drawCharacter } from './cast';
 const KEYS = ['KeyQ', 'KeyW', 'KeyE', 'KeyI', 'KeyO', 'KeyP'] as const;
 const LABELS = ['Q', 'W', 'E', 'I', 'O', 'P'] as const;
 
-const DURATION = 30;
 /**
  * 위 줄에 Q W E, 아래 줄에 I O P — 열을 맞춰 둔다.
  * 키보드에서도 두 덩어리가 3개씩이라, 화면 배치가 손 모양과 그대로 겹친다.
@@ -27,14 +30,52 @@ const ROW_Y = [248, 412] as const;
 const SLOT_ROW = [0, 0, 0, 1, 1, 1] as const;
 const SLOT_COL = [0, 1, 2, 0, 1, 2] as const;
 
-/** 등장 간격(초) — 시작과 끝. 사이는 시간에 따라 선형으로 좁아진다. */
-const SPAWN_START = 1.15;
-const SPAWN_END = 0.42;
-/** 머무는 시간(초) — 시작과 끝. */
-const STAY_START = 1.5;
 /** 캐릭터 키. 덜 올라온 정도를 이 값만큼 아래로 내려 표현한다. */
 const MOLE_H = 118;
-const STAY_END = 0.72;
+
+interface Params {
+  duration: number;
+  /** 등장 간격(초) — 시작과 끝. */
+  spawnStart: number;
+  spawnEnd: number;
+  /** 머무는 시간(초) — 시작과 끝. */
+  stayStart: number;
+  stayEnd: number;
+  /** 두 명이 동시에 나올 확률. 0 이면 항상 한 명씩. */
+  doubleChance: number;
+  ok: number;
+  superb: number;
+}
+
+/**
+ * 난이도별 조임.
+ *
+ * 쉬움은 한 명씩만, 넉넉히 머문다. 여섯 키의 자리를 손이 외우는 게
+ * 먼저다 — 자리를 모르는 채로 빨라지면 그냥 아무 데나 두드리게 된다.
+ */
+const PARAMS: Record<Difficulty, Params> = {
+  easy: {
+    duration: 25,
+    spawnStart: 1.5, spawnEnd: 1.05,
+    stayStart: 2.1, stayEnd: 1.5,
+    doubleChance: 0,
+    ok: 11, superb: 18,
+  },
+  normal: {
+    duration: 30,
+    spawnStart: 1.15, spawnEnd: 0.65,
+    stayStart: 1.6, stayEnd: 1.0,
+    doubleChance: 0.12,
+    ok: 16, superb: 26,
+  },
+  hard: {
+    duration: 35,
+    spawnStart: 0.88, spawnEnd: 0.4,
+    stayStart: 1.25, stayEnd: 0.66,
+    doubleChance: 0.3,
+    ok: 22, superb: 35,
+  },
+};
 
 interface Mole {
   slot: number;
@@ -61,10 +102,17 @@ export class MoleWhack implements FreeGame {
   readonly hint = '튀어나온 사람을 그 자리 키로 — Q W E · I O P';
   readonly order = 60;
   readonly keys = KEYS;
-  readonly duration = DURATION;
+  readonly duration: number;
+  readonly controls: readonly Control[] = [
+    { keys: ['Q', 'W', 'E'], label: '위 줄 세 구멍' },
+    { keys: ['I', 'O', 'P'], label: '아래 줄 세 구멍' },
+  ];
+  readonly scoring = '들어가기 전에 그 자리 키를 누르면 잡음 · 빈 구멍을 치면 콤보가 끊깁니다';
 
+  private p: Params;
+  private rng: Rng;
   private moles: Mole[] = [];
-  private nextSpawn = 0.8;
+  private nextSpawn: number;
   private hits = 0;
   private misses = 0;
   private wrong = 0;
@@ -72,69 +120,36 @@ export class MoleWhack implements FreeGame {
   private bestCombo = 0;
   /** 방금 헛친 자리 — 잠깐 붉게 보여준다. */
   private wrongAt: { slot: number; t: number } | null = null;
-  private seed = 20260805;
 
-  /** 재현 가능한 난수. Math.random 은 판마다 난이도가 들쭉날쭉해진다. */
-  private rand(): number {
-    this.seed = (this.seed * 1103515245 + 12345) & 0x7fffffff;
-    return this.seed / 0x7fffffff;
+  constructor(difficulty: Difficulty, seed: number) {
+    this.p = PARAMS[difficulty];
+    this.duration = this.p.duration;
+    this.rng = makeRng(seed);
+    this.nextSpawn = 0.9;
   }
 
   start(): void {
     this.moles = [];
-    this.nextSpawn = 0.8;
+    this.nextSpawn = 0.9;
     this.hits = this.misses = this.wrong = this.combo = this.bestCombo = 0;
+    this.wrongAt = null;
   }
 
   // dt 를 안 쓰는 건 이 게임이 순전히 "언제 튀어나왔나"만 보기 때문이다.
   // 위치를 굴리지 않으므로 프레임 간격이 필요 없다.
   update(_dt: number, t: number, input: FreeInput, audio: AudioEngine): void {
-    const p = clamp(t / DURATION, 0, 1);
+    const p = clamp(t / this.p.duration, 0, 1);
 
-    // 등장
     if (t >= this.nextSpawn) {
-      const free = [0, 1, 2, 3, 4, 5].filter(
-        (s) => !this.moles.some((m) => m.slot === s && !m.hitAt && !m.escaped && t < m.at + m.stay),
-      );
-      if (free.length > 0) {
-        const slot = free[Math.floor(this.rand() * free.length)];
-        this.moles.push({
-          slot,
-          at: t,
-          stay: lerp(STAY_START, STAY_END, p),
-          hitAt: null,
-          escaped: false,
-        });
-        audio.blip(audio.ctx.currentTime, 330, 0.35, 'sine');
-      }
-      this.nextSpawn = t + lerp(SPAWN_START, SPAWN_END, p);
+      this.spawn(t, p, audio);
+      this.nextSpawn = t + lerp(this.p.spawnStart, this.p.spawnEnd, p);
     }
 
-    // 입력
-    for (let i = 0; i < KEYS.length; i++) {
-      if (!input.pressed(KEYS[i])) continue;
-      const target = this.moles.find(
-        (m) => m.slot === i && !m.hitAt && !m.escaped && t >= m.at && t < m.at + m.stay,
-      );
-      if (target) {
-        target.hitAt = t;
-        this.hits++;
-        this.combo++;
-        this.bestCombo = Math.max(this.bestCombo, this.combo);
-        audio.clap(audio.ctx.currentTime, 0.9);
-        audio.blip(audio.ctx.currentTime, 880 + Math.min(this.combo, 12) * 40, 0.5, 'triangle');
-      } else {
-        // 아무도 없는 자리를 쳤다. 콤보가 끊긴다.
-        this.wrong++;
-        this.combo = 0;
-        this.wrongAt = { slot: i, t };
-        audio.bad(audio.ctx.currentTime);
-      }
-    }
+    this.readInput(t, input, audio);
 
     // 놓침 확정
     for (const m of this.moles) {
-      if (!m.hitAt && !m.escaped && t >= m.at + m.stay) {
+      if (m.hitAt === null && !m.escaped && t >= m.at + m.stay) {
         m.escaped = true;
         this.misses++;
         this.combo = 0;
@@ -146,9 +161,57 @@ export class MoleWhack implements FreeGame {
     if (this.wrongAt && t - this.wrongAt.t > 0.4) this.wrongAt = null;
   }
 
+  private spawn(t: number, p: number, audio: AudioEngine): void {
+    const stay = lerp(this.p.stayStart, this.p.stayEnd, p);
+    // 동시에 둘이 나오면 손이 갈라져야 한다. 어려움의 매운맛은 여기서 나온다.
+    const count = this.rng() < this.p.doubleChance ? 2 : 1;
+
+    for (let n = 0; n < count; n++) {
+      const free = [0, 1, 2, 3, 4, 5].filter((s) => !this.occupied(s, t));
+      if (free.length === 0) return;
+      const slot = free[Math.floor(this.rng() * free.length)];
+      this.moles.push({ slot, at: t, stay, hitAt: null, escaped: false });
+    }
+    audio.blip(audio.ctx.currentTime, 330, 0.35, 'sine');
+  }
+
+  private occupied(slot: number, t: number): boolean {
+    return this.moles.some(
+      (m) => m.slot === slot && m.hitAt === null && !m.escaped && t < m.at + m.stay,
+    );
+  }
+
+  private readInput(t: number, input: FreeInput, audio: AudioEngine): void {
+    for (let i = 0; i < KEYS.length; i++) {
+      if (!input.pressed(KEYS[i])) continue;
+      const target = this.moles.find(
+        (m) => m.slot === i && m.hitAt === null && !m.escaped && t >= m.at && t < m.at + m.stay,
+      );
+      if (target) {
+        target.hitAt = t;
+        this.hits++;
+        this.combo++;
+        this.bestCombo = Math.max(this.bestCombo, this.combo);
+        audio.clap(audio.ctx.currentTime, 0.9);
+        audio.blip(audio.ctx.currentTime, 880 + Math.min(this.combo, 12) * 40, 0.5, 'triangle');
+        // 맞은 자리에서 위로 튀어오른다 — 어느 구멍을 쳤는지가 눈에 남는다.
+        input.burst(slotX(i), slotY(i) - 30, [C.pink, C.yellow, C.white], {
+          count: 14, speed: [130, 300], angle: -Math.PI / 2, spread: Math.PI * 1.2, square: true,
+        });
+        if (this.combo > 0 && this.combo % 5 === 0) input.shake(4);
+      } else {
+        // 아무도 없는 자리를 쳤다. 콤보가 끊긴다.
+        this.wrong++;
+        this.combo = 0;
+        this.wrongAt = { slot: i, t };
+        audio.bad(audio.ctx.currentTime);
+        input.shake(5);
+      }
+    }
+  }
+
   draw(g: CanvasRenderingContext2D, t: number): void {
-    g.fillStyle = C.bg;
-    g.fillRect(0, 0, W, H);
+    drawBackdrop(g, t);
 
     for (let i = 0; i < 6; i++) {
       const x = slotX(i);
@@ -164,7 +227,17 @@ export class MoleWhack implements FreeGame {
       g.fill();
       g.restore();
 
-      const m = this.moles.find((mm) => mm.slot === i && t >= mm.at);
+      // 가장 최근에 나온 것을 그린다.
+      //
+      // 맞거나 지나간 두더지도 퇴장 연출을 위해 0.8초 더 배열에 남는데, 그동안
+      // 그 구멍은 이미 비어 있는 것으로 쳐서 새 두더지가 나온다. 앞에서부터
+      // 찾으면 이미 사라진 옛 두더지가 잡혀 drawMole 이 곧바로 빠져나가므로,
+      // 새로 나온 두더지가 보이지 않는 채로 칠 수만 있는 상태가 됐다.
+      let m: Mole | null = null;
+      for (const mm of this.moles) {
+        if (mm.slot !== i || t < mm.at) continue;
+        if (!m || mm.at > m.at) m = mm;
+      }
       if (m) drawMole(g, m, t, x, y);
 
       text(g, LABELS[i], x, y + 40, {
@@ -196,7 +269,7 @@ export class MoleWhack implements FreeGame {
     const score = this.hits * 10 + this.bestCombo * 5 - this.wrong * 3;
     return {
       score: Math.max(0, score),
-      rank: rankByScore(this.hits, 18, 30),
+      rank: rankByScore(this.hits, this.p.ok, this.p.superb),
       headline: `최고 ${this.bestCombo} 연속`,
       rows: [
         { label: '잡음', value: this.hits, color: C.mint },
@@ -204,6 +277,45 @@ export class MoleWhack implements FreeGame {
         { label: '헛침', value: this.wrong, color: C.yellow },
       ],
     };
+  }
+
+  /** 설명 그림 — 여섯 구멍 배치와 키가 그대로 겹친다는 걸 보여준다. */
+  preview(g: CanvasRenderingContext2D, t: number): void {
+    const gap = 108;
+    const firstX = PREVIEW_W / 2 - gap;
+    const rowY = [66, 140];
+    // 2.4초에 한 명씩, 자리를 옮겨 가며.
+    const who = Math.floor(t / 1.1) % 6;
+    const age = t % 1.1;
+    const up = age < 0.85 ? clamp(age / 0.14, 0, 1) : clamp(1 - (age - 0.85) / 0.14, 0, 1);
+
+    for (let i = 0; i < 6; i++) {
+      const x = firstX + SLOT_COL[i] * gap;
+      const y = rowY[SLOT_ROW[i]];
+
+      g.fillStyle = 'rgba(43, 42, 51, 0.13)';
+      g.beginPath();
+      g.ellipse(x, y, 34, 10, 0, 0, Math.PI * 2);
+      g.fill();
+
+      if (i === who && up > 0) {
+        g.save();
+        g.beginPath();
+        g.rect(x - 40, 0, 80, y + 8);
+        g.clip();
+        drawCharacter(g, { id: CAST[i], x, y: y + 8 + (1 - up) * 70, h: 70 });
+        g.restore();
+      }
+
+      // 눌러야 할 키가 그 구멍 바로 아래 — 배치가 곧 손 모양이라는 게 요점이다.
+      const hot = i === who && up > 0.4;
+      text(g, LABELS[i], x, y + 26, {
+        size: hot ? 17 : 14,
+        color: hot ? C.pink : C.inkSoft,
+        weight: 900,
+        alpha: hot ? 1 : 0.5,
+      });
+    }
   }
 }
 
@@ -241,7 +353,6 @@ function drawMole(
   g.rect(x - 70, 0, 140, y + 12);
   g.clip();
   // 발은 구멍 바닥에 두고, 덜 올라온 만큼 통째로 아래로 내린다.
-  // up=1 이면 구멍에 서 있고, up=0 이면 키만큼 내려가 잘려서 안 보인다.
   drawCharacter(g, {
     id: CAST[m.slot],
     x,
